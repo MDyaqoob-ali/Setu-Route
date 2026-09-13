@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -16,24 +16,42 @@ import {
   ShieldAlert,
   Flame,
   Check,
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
+  RefreshCw,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { Incident, IncidentStatus, District, Road } from "@/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
-import { LoadingState } from "@/components/ui/LoadingState";
+import { LoadingState, TableSkeleton } from "@/components/ui/LoadingState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { formatDateTime, formatRelativeTime } from "@/lib/utils";
+import { useToast } from "@/components/ui/ToastProvider";
+
+type SortField = "incident_code" | "type" | "severity" | "title" | "created_at" | "status";
 
 export default function IncidentsPage() {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
+
   const [selectedSeverity, setSelectedSeverity] = useState<string>("ALL");
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [activeIncident, setActiveIncident] = useState<Incident | null>(null);
 
-  // Form State
+  // Sorting & Pagination
+  const [sortField, setSortField] = useState<SortField>("created_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 10;
+
+  // Form State & Inline Validation
   const [newIncident, setNewIncident] = useState({
     type: "landslide",
     severity: "HIGH",
@@ -46,9 +64,17 @@ export default function IncidentsPage() {
     road_id: "",
     affected_traffic_direction: "BOTH",
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   // Fetch Incidents
-  const { data: incidents, isLoading } = useQuery<Incident[]>({
+  const {
+    data: incidents,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery<Incident[]>({
     queryKey: ["incidents", selectedSeverity, selectedStatus],
     queryFn: () => {
       let endpoint = "/incidents?";
@@ -56,6 +82,7 @@ export default function IncidentsPage() {
       if (selectedStatus !== "ALL") endpoint += `status=${selectedStatus}&`;
       return apiClient<Incident[]>(endpoint);
     },
+    refetchInterval: 6000,
   });
 
   // Fetch Districts and Roads for Create Form
@@ -71,14 +98,16 @@ export default function IncidentsPage() {
 
   // Create Incident Mutation
   const createMutation = useMutation({
-    mutationFn: (data: any) => apiClient<Incident>("/incidents", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-    onSuccess: () => {
+    mutationFn: (data: any) =>
+      apiClient<Incident>("/incidents", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["incidents"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setIsCreateModalOpen(false);
+      setFormErrors({});
       setNewIncident({
         type: "landslide",
         severity: "HIGH",
@@ -91,6 +120,14 @@ export default function IncidentsPage() {
         road_id: "",
         affected_traffic_direction: "BOTH",
       });
+      addToast({
+        title: "Incident Registered",
+        description: `Incident ${created.incident_code} logged and dispatched to regional GIS map.`,
+        type: "success",
+      });
+    },
+    onError: (err: any) => {
+      setFormErrors({ submit: err.message || "Failed to log incident." });
     },
   });
 
@@ -105,30 +142,110 @@ export default function IncidentsPage() {
       queryClient.invalidateQueries({ queryKey: ["incidents"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setActiveIncident(updated);
+      addToast({
+        title: "Status Updated",
+        description: `Incident status transitioned to ${updated.status}.`,
+        type: "success",
+      });
     },
   });
 
-  const filteredIncidents = (incidents || []).filter((inc) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      inc.title.toLowerCase().includes(q) ||
-      inc.incident_code.toLowerCase().includes(q) ||
-      inc.type.toLowerCase().includes(q) ||
-      (inc.address && inc.address.toLowerCase().includes(q))
-    );
-  });
+  // Client-side Validation (Section 32)
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!newIncident.title.trim()) {
+      errors.title = "Incident title is required.";
+    }
+    if (!newIncident.description.trim()) {
+      errors.description = "Operational description is required.";
+    }
+    if (!newIncident.district_id) {
+      errors.district_id = "Please assign an affected district.";
+    }
+
+    // Geographic boundary validation: Northeast India
+    if (
+      isNaN(newIncident.latitude) ||
+      newIncident.latitude < 21.0 ||
+      newIncident.latitude > 30.5
+    ) {
+      errors.latitude = "Latitude must be within Northeast India (21.0°N – 30.5°N).";
+    }
+    if (
+      isNaN(newIncident.longitude) ||
+      newIncident.longitude < 88.0 ||
+      newIncident.longitude > 98.0
+    ) {
+      errors.longitude = "Longitude must be within Northeast India (88.0°E – 98.0°E).";
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newIncident.title || !newIncident.description || !newIncident.district_id) {
-      alert("Please fill in Title, Description, and District.");
-      return;
-    }
+    if (!validateForm()) return;
     createMutation.mutate(newIncident);
   };
 
-  const criticalCount = (incidents || []).filter((i) => i.severity === "CRITICAL" && i.status !== "RESOLVED").length;
+  // Sorting Handler
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  // Filtered & Sorted Incidents
+  const filteredAndSorted = useMemo(() => {
+    let result = (incidents || []).filter((inc) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        inc.title.toLowerCase().includes(q) ||
+        inc.incident_code.toLowerCase().includes(q) ||
+        inc.type.toLowerCase().includes(q) ||
+        (inc.address && inc.address.toLowerCase().includes(q))
+      );
+    });
+
+    result.sort((a, b) => {
+      let valA: any = a[sortField];
+      let valB: any = b[sortField];
+
+      if (sortField === "severity") {
+        const severityRank: Record<string, number> = {
+          CRITICAL: 4,
+          HIGH: 3,
+          MEDIUM: 2,
+          LOW: 1,
+        };
+        valA = severityRank[a.severity] || 0;
+        valB = severityRank[b.severity] || 0;
+      }
+
+      if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+      if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [incidents, searchQuery, sortField, sortOrder]);
+
+  // Paginated Slice
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
+  const paginatedIncidents = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredAndSorted.slice(start, start + pageSize);
+  }, [filteredAndSorted, currentPage, pageSize]);
+
+  const criticalCount = (incidents || []).filter(
+    (i) => i.severity === "CRITICAL" && i.status !== "RESOLVED"
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -139,45 +256,47 @@ export default function IncidentsPage() {
             <Flame className="w-3.5 h-3.5 text-rose-500" />
             <span>Hazard & Blockage Management</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-            Corridor Incidents & Hazards
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <span>Incident Triage & Highway Obstructions</span>
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Report, triage, and track resolution of landslides, flash floods, and arterial highway disruptions.
+            Real-time verified reports on landslides, road washouts, bridge strains & arterial bottlenecks.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 self-start sm:self-auto">
           {criticalCount > 0 && (
-            <div className="flex items-center gap-2 text-xs font-semibold bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl text-rose-800 shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              <span>{criticalCount} Critical Blockages Active</span>
+            <div className="flex items-center gap-2 text-xs font-semibold bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl text-rose-800 shadow-sm animate-pulse">
+              <ShieldAlert className="w-4 h-4 text-rose-600" />
+              <span>{criticalCount} Critical Blockages</span>
             </div>
           )}
+
           <button
-            onClick={() => {
-              if (districts && districts.length > 0 && !newIncident.district_id) {
-                setNewIncident((prev) => ({ ...prev, district_id: districts[0].id }));
-              }
-              setIsCreateModalOpen(true);
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition-all"
+            onClick={() => setIsCreateModalOpen(true)}
+            className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-xs transition-all hover:scale-[1.02]"
           >
             <Plus className="w-4 h-4" />
-            Log New Incident
+            <span>Report New Incident</span>
           </button>
         </div>
       </div>
 
-      {/* Filter Controls Bar */}
-      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      {/* Filter & Search Bar */}
+      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Filter by code, title, location..."
+            placeholder="Search code, title, hazard, highway..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             className="w-full bg-slate-50/70 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
           />
         </div>
@@ -186,14 +305,17 @@ export default function IncidentsPage() {
           <span className="text-xs font-medium text-slate-500 shrink-0">Severity:</span>
           <select
             value={selectedSeverity}
-            onChange={(e) => setSelectedSeverity(e.target.value)}
+            onChange={(e) => {
+              setSelectedSeverity(e.target.value);
+              setCurrentPage(1);
+            }}
             className="flex-1 bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
           >
             <option value="ALL">All Severities</option>
-            <option value="CRITICAL">Critical</option>
-            <option value="HIGH">High</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="LOW">Low</option>
+            <option value="CRITICAL">Critical (Total Block)</option>
+            <option value="HIGH">High (Major Delay)</option>
+            <option value="MEDIUM">Medium (Single Lane)</option>
+            <option value="LOW">Low (Caution)</option>
           </select>
         </div>
 
@@ -201,7 +323,10 @@ export default function IncidentsPage() {
           <span className="text-xs font-medium text-slate-500 shrink-0">Status:</span>
           <select
             value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
+            onChange={(e) => {
+              setSelectedStatus(e.target.value);
+              setCurrentPage(1);
+            }}
             className="flex-1 bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
           >
             <option value="ALL">All Statuses</option>
@@ -212,68 +337,178 @@ export default function IncidentsPage() {
           </select>
         </div>
 
-        <div className="flex items-center justify-end text-slate-400 text-xs font-medium">
-          <span>{filteredIncidents.length} incidents logged</span>
+        <div className="flex items-center justify-between sm:justify-end gap-3 text-slate-400 text-xs font-medium">
+          <span>{filteredAndSorted.length} incidents found</span>
+          <button
+            onClick={() => refetch()}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            title="Refresh Incidents"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
         </div>
       </div>
 
-      {/* Incidents Table */}
+      {/* Incidents Table / Content */}
       {isLoading ? (
-        <LoadingState message="Fetching live incident database..." />
-      ) : filteredIncidents.length === 0 ? (
+        <TableSkeleton rows={6} />
+      ) : isError ? (
+        <ErrorState
+          title="Unable to Retrieve Incident Database"
+          message="Connection to regional incident ingestion gateway failed. Data may be degraded."
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          errorDetails={error}
+        />
+      ) : filteredAndSorted.length === 0 ? (
         <EmptyState
-          title="No Incidents Match Filter"
-          description="All monitored corridors in this scope are operating smoothly without active obstructions."
+          title="No Incidents Match Selected Filters"
+          description="All monitored Northeast highway corridors in this category are operating without reported obstructions."
         />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-card">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 uppercase tracking-wider text-[11px] font-semibold">
-              <tr>
-                <th className="py-3.5 px-5">Incident Code</th>
-                <th className="py-3.5 px-5">Hazard Type</th>
-                <th className="py-3.5 px-5">Severity</th>
-                <th className="py-3.5 px-5">Title & Location</th>
-                <th className="py-3.5 px-5">Traffic Impact</th>
-                <th className="py-3.5 px-5">Reported</th>
-                <th className="py-3.5 px-5 text-right">Triage Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filteredIncidents.map((inc) => (
-                <tr
-                  key={inc.id}
-                  onClick={() => setActiveIncident(inc)}
-                  className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
-                >
-                  <td className="py-4 px-5 font-mono font-bold text-slate-900 group-hover:text-brand-600">
-                    {inc.incident_code}
-                  </td>
-                  <td className="py-4 px-5 capitalize text-slate-800 font-medium">
-                    {inc.type.replace(/_/g, " ")}
-                  </td>
-                  <td className="py-4 px-5">
-                    <StatusBadge status={inc.severity} size="sm" />
-                  </td>
-                  <td className="py-4 px-5 max-w-xs">
-                    <p className="font-semibold text-slate-900 truncate">{inc.title}</p>
-                    {inc.address && (
-                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{inc.address}</p>
-                    )}
-                  </td>
-                  <td className="py-4 px-5 text-slate-600 font-medium">
-                    {inc.affected_traffic_direction.replace(/_/g, " ")}
-                  </td>
-                  <td className="py-4 px-5 text-slate-400">
-                    {formatRelativeTime(inc.created_at)}
-                  </td>
-                  <td className="py-4 px-5 text-right">
-                    <StatusBadge status={inc.status} size="sm" />
-                  </td>
+        <div className="space-y-3">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-card">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 uppercase tracking-wider text-[11px] font-semibold select-none">
+                <tr>
+                  <th
+                    onClick={() => handleSort("incident_code")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Incident Code</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort("type")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Hazard Type</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort("severity")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Severity</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort("title")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Title & Location</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
+                  <th className="py-3.5 px-5">Traffic Impact</th>
+                  <th
+                    onClick={() => handleSort("created_at")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Reported</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort("status")}
+                    className="py-3.5 px-5 text-right cursor-pointer hover:text-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Triage State</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedIncidents.map((inc) => (
+                  <tr
+                    key={inc.id}
+                    onClick={() => setActiveIncident(inc)}
+                    className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
+                  >
+                    <td className="py-4 px-5 font-mono font-bold text-slate-900 group-hover:text-brand-600">
+                      {inc.incident_code}
+                    </td>
+                    <td className="py-4 px-5 capitalize text-slate-800 font-medium">
+                      {inc.type.replace(/_/g, " ")}
+                    </td>
+                    <td className="py-4 px-5">
+                      <StatusBadge status={inc.severity} size="sm" />
+                    </td>
+                    <td className="py-4 px-5 max-w-xs">
+                      <p className="font-semibold text-slate-900 truncate">{inc.title}</p>
+                      {inc.address && (
+                        <p className="text-[11px] text-slate-400 truncate mt-0.5">{inc.address}</p>
+                      )}
+                    </td>
+                    <td className="py-4 px-5 text-slate-600 font-medium">
+                      {inc.affected_traffic_direction.replace(/_/g, " ")}
+                    </td>
+                    <td className="py-4 px-5 text-slate-400">
+                      {formatRelativeTime(inc.created_at)}
+                    </td>
+                    <td className="py-4 px-5 text-right">
+                      <StatusBadge status={inc.status} size="sm" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-2 text-xs text-slate-500">
+              <span>
+                Page <strong className="text-slate-800">{currentPage}</strong> of{" "}
+                <strong className="text-slate-800">{totalPages}</strong>
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Previous Page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                {Array.from({ length: totalPages }).map((_, idx) => {
+                  const pageNum = idx + 1;
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors ${
+                        currentPage === pageNum
+                          ? "bg-brand-600 text-white shadow-xs"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Next Page"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -298,88 +533,62 @@ export default function IncidentsPage() {
             </div>
 
             <div>
-              <h3 className="text-sm font-bold text-slate-900">{activeIncident.title}</h3>
-              <p className="mt-2 text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                {activeIncident.description}
-              </p>
+              <h4 className="font-bold text-slate-900 text-sm">{activeIncident.title}</h4>
+              <p className="mt-1.5 text-slate-600 leading-relaxed">{activeIncident.description}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-slate-50 border border-slate-100 text-slate-600">
               <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Coordinates</span>
-                <span className="text-slate-900 font-mono text-[11px] mt-0.5 block">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Coordinates</span>
+                <span className="font-mono font-medium text-slate-800">
                   {activeIncident.latitude.toFixed(4)}°N, {activeIncident.longitude.toFixed(4)}°E
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Traffic Direction</span>
-                <span className="text-slate-900 font-semibold mt-0.5 block">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Traffic Direction</span>
+                <span className="font-medium text-slate-800 capitalize">
                   {activeIncident.affected_traffic_direction.replace(/_/g, " ")}
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Reporting Officer</span>
-                <span className="text-slate-800 font-medium mt-0.5 block">
-                  {activeIncident.reporter_name || "Field Officer"} ({activeIncident.reporter_role || "FIELD"})
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Est. Clearance Time</span>
-                <span className="text-slate-800 font-medium mt-0.5 block">
-                  {activeIncident.estimated_clearance_time
-                    ? formatDateTime(activeIncident.estimated_clearance_time)
-                    : "Under Assessment"}
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Verification</span>
+                <span className="font-medium text-slate-800">
+                  {activeIncident.verification_status || "Verified Official"}
                 </span>
               </div>
             </div>
 
-            {/* Photos Preview */}
-            {activeIncident.photos_json && activeIncident.photos_json.length > 0 && (
-              <div>
-                <span className="text-slate-700 block mb-2 font-bold flex items-center gap-1.5 text-xs">
-                  <Camera className="w-4 h-4 text-brand-600" />
-                  Photographic Evidence ({activeIncident.photos_json.length})
-                </span>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {activeIncident.photos_json.map((url, idx) => (
-                    <img
-                      key={idx}
-                      src={url}
-                      alt={`Evidence ${idx + 1}`}
-                      className="w-full h-36 object-cover rounded-xl border border-slate-200 shadow-sm"
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Lifecycle Status Actions */}
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-slate-500 font-medium">Update Status:</span>
+            {/* Status Transition Action Buttons */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-slate-400 text-[11px]">Authorized Triage Controls</span>
               <div className="flex items-center gap-2">
                 {activeIncident.status === "OPEN" && (
                   <button
-                    onClick={() => updateStatusMutation.mutate({ id: activeIncident.id, status: "ACKNOWLEDGED" })}
-                    className="px-3.5 py-2 rounded-xl bg-brand-50 text-brand-700 hover:bg-brand-100 border border-brand-200 text-xs font-semibold transition-colors"
+                    onClick={() =>
+                      updateStatusMutation.mutate({
+                        id: activeIncident.id,
+                        status: "INVESTIGATING",
+                      })
+                    }
+                    disabled={updateStatusMutation.isPending}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold border border-amber-200 transition-colors disabled:opacity-50"
                   >
-                    Acknowledge
-                  </button>
-                )}
-                {activeIncident.status !== "INVESTIGATING" && activeIncident.status !== "RESOLVED" && (
-                  <button
-                    onClick={() => updateStatusMutation.mutate({ id: activeIncident.id, status: "INVESTIGATING" })}
-                    className="px-3.5 py-2 rounded-xl bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 text-xs font-semibold transition-colors"
-                  >
-                    Dispatch Inspection
+                    Investigate
                   </button>
                 )}
                 {activeIncident.status !== "RESOLVED" && (
                   <button
-                    onClick={() => updateStatusMutation.mutate({ id: activeIncident.id, status: "RESOLVED" })}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5"
+                    onClick={() =>
+                      updateStatusMutation.mutate({
+                        id: activeIncident.id,
+                        status: "RESOLVED",
+                      })
+                    }
+                    disabled={updateStatusMutation.isPending}
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center gap-1.5 shadow-xs disabled:opacity-50"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    Mark Resolved
+                    <span>Mark Cleared / Resolved</span>
                   </button>
                 )}
               </div>
@@ -388,7 +597,7 @@ export default function IncidentsPage() {
         </Modal>
       )}
 
-      {/* Create Incident Modal */}
+      {/* Create Incident Modal with Inline Validation & Anti-duplicate Submissions */}
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
@@ -397,6 +606,12 @@ export default function IncidentsPage() {
         maxWidth="lg"
       >
         <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs text-slate-700">
+          {formErrors.submit && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-medium">
+              {formErrors.submit}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1.5">Incident Type *</label>
@@ -435,34 +650,49 @@ export default function IncidentsPage() {
             <label className="block text-slate-600 font-semibold mb-1.5">Incident Title *</label>
             <input
               type="text"
-              required
               placeholder="e.g. Sela Pass Mudslide blocking Km 284"
               value={newIncident.title}
               onChange={(e) => setNewIncident({ ...newIncident, title: e.target.value })}
-              className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+              className={`w-full bg-slate-50/70 border rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 transition-all ${
+                formErrors.title
+                  ? "border-rose-400 focus:ring-rose-400/20"
+                  : "border-slate-200 focus:ring-brand-500/20 focus:border-brand-500"
+              }`}
             />
+            {formErrors.title && (
+              <p className="text-[11px] text-rose-600 mt-1">{formErrors.title}</p>
+            )}
           </div>
 
           <div>
             <label className="block text-slate-600 font-semibold mb-1.5">Description & Operational Notes *</label>
             <textarea
-              required
               rows={3}
               placeholder="Detailed description of blockage, debris volume, road conditions, and emergency response deployed..."
               value={newIncident.description}
               onChange={(e) => setNewIncident({ ...newIncident, description: e.target.value })}
-              className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+              className={`w-full bg-slate-50/70 border rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 transition-all ${
+                formErrors.description
+                  ? "border-rose-400 focus:ring-rose-400/20"
+                  : "border-slate-200 focus:ring-brand-500/20 focus:border-brand-500"
+              }`}
             />
+            {formErrors.description && (
+              <p className="text-[11px] text-rose-600 mt-1">{formErrors.description}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1.5">District *</label>
               <select
-                required
                 value={newIncident.district_id}
                 onChange={(e) => setNewIncident({ ...newIncident, district_id: e.target.value })}
-                className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all font-medium"
+                className={`w-full bg-slate-50/70 border rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 transition-all font-medium ${
+                  formErrors.district_id
+                    ? "border-rose-400 focus:ring-rose-400/20"
+                    : "border-slate-200 focus:ring-brand-500/20 focus:border-brand-500"
+                }`}
               >
                 <option value="">Select District</option>
                 {(districts || []).map((d) => (
@@ -471,6 +701,9 @@ export default function IncidentsPage() {
                   </option>
                 ))}
               </select>
+              {formErrors.district_id && (
+                <p className="text-[11px] text-rose-600 mt-1">{formErrors.district_id}</p>
+              )}
             </div>
 
             <div>
@@ -492,29 +725,43 @@ export default function IncidentsPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-600 font-semibold mb-1.5">Latitude</label>
+              <label className="block text-slate-600 font-semibold mb-1.5">Latitude (°N)</label>
               <input
                 type="number"
                 step="any"
                 value={newIncident.latitude}
                 onChange={(e) => setNewIncident({ ...newIncident, latitude: parseFloat(e.target.value) })}
-                className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all font-mono"
+                className={`w-full bg-slate-50/70 border rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 transition-all font-mono ${
+                  formErrors.latitude
+                    ? "border-rose-400 focus:ring-rose-400/20"
+                    : "border-slate-200 focus:ring-brand-500/20 focus:border-brand-500"
+                }`}
               />
+              {formErrors.latitude && (
+                <p className="text-[11px] text-rose-600 mt-1">{formErrors.latitude}</p>
+              )}
             </div>
             <div>
-              <label className="block text-slate-600 font-semibold mb-1.5">Longitude</label>
+              <label className="block text-slate-600 font-semibold mb-1.5">Longitude (°E)</label>
               <input
                 type="number"
                 step="any"
                 value={newIncident.longitude}
                 onChange={(e) => setNewIncident({ ...newIncident, longitude: parseFloat(e.target.value) })}
-                className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all font-mono"
+                className={`w-full bg-slate-50/70 border rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 transition-all font-mono ${
+                  formErrors.longitude
+                    ? "border-rose-400 focus:ring-rose-400/20"
+                    : "border-slate-200 focus:ring-brand-500/20 focus:border-brand-500"
+                }`}
               />
+              {formErrors.longitude && (
+                <p className="text-[11px] text-rose-600 mt-1">{formErrors.longitude}</p>
+              )}
             </div>
           </div>
 
           <div>
-            <label className="block text-slate-600 font-semibold mb-1.5">Specific Location / Milestone</label>
+            <label className="block text-slate-600 font-semibold mb-1.5">Specific Location / Landmark</label>
             <input
               type="text"
               placeholder="e.g. NH-6 Km 142 near Sonapur Tunnel"
@@ -524,20 +771,21 @@ export default function IncidentsPage() {
             />
           </div>
 
-          <div className="pt-4 border-t border-slate-100 flex justify-end gap-2.5">
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={() => setIsCreateModalOpen(false)}
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 font-semibold text-xs transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-sm disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors disabled:opacity-50"
             >
-              {createMutation.isPending ? "Submitting..." : "Submit Incident Report"}
+              <Plus className="w-4 h-4" />
+              <span>{createMutation.isPending ? "Logging Incident..." : "Submit Incident Report"}</span>
             </button>
           </div>
         </form>

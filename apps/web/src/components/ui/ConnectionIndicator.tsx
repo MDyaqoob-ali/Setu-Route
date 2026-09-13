@@ -1,18 +1,39 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useConnectionStore } from "@/lib/connection-store";
 import { syncManager } from "@/lib/sync-manager";
-import { Wifi, WifiOff, RefreshCw, CheckCircle2, Clock } from "lucide-react";
+import {
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  Clock,
+  Radio,
+  Server,
+  Activity,
+  Layers,
+  ChevronDown,
+  X,
+  Volume2,
+  VolumeX,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
 
 export const ConnectionIndicator: React.FC = () => {
-  const [mounted, setMounted] = React.useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const {
     connectionState,
     latencyMs,
+    wsConnected,
     pendingSyncCount,
     syncProgress,
     lastSyncTime,
+    lastEventTime,
+    activeSources,
     refreshPendingCount,
     checkConnectivity,
   } = useConnectionStore();
@@ -24,78 +45,191 @@ export const ConnectionIndicator: React.FC = () => {
     checkConnectivity();
   }, [refreshPendingCount, checkConnectivity]);
 
-  const handleManualSync = () => {
+  // Close on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  const handleManualSync = (e: React.MouseEvent) => {
+    e.stopPropagation();
     syncManager.syncOutbox();
+  };
+
+  const handleReconnect = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await checkConnectivity();
   };
 
   if (!mounted) {
     return (
-      <div className="flex items-center gap-2 text-xs">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="font-semibold text-[11px]">ONLINE</span>
-          <span className="text-[10px] text-emerald-600/80 font-mono">(45ms)</span>
-        </div>
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+        <span className="font-semibold text-[11px]">INITIALIZING</span>
       </div>
     );
   }
 
+  // Section 64: Never claim LIVE if not genuinely connected
+  const isTrulyLive = wsConnected && connectionState === "ONLINE";
+  const isReconnecting = !wsConnected && connectionState !== "OFFLINE";
+  const isOffline = connectionState === "OFFLINE";
+
   return (
-    <div className="flex items-center gap-2 text-xs">
-      {/* State Badge */}
-      {connectionState === "ONLINE" && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="font-semibold text-[11px]">ONLINE</span>
-          {latencyMs > 0 && <span className="text-[10px] text-emerald-600/80 font-mono">({latencyMs}ms)</span>}
-        </div>
-      )}
+    <div className="relative" ref={dropdownRef}>
+      {/* Trigger Button */}
+      <button
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`flex items-center gap-2 px-2.5 py-1 rounded-full border transition-all shadow-xs cursor-pointer select-none text-xs ${
+          isTrulyLive
+            ? "bg-emerald-50/90 hover:bg-emerald-100/80 border-emerald-200/90 text-emerald-800"
+            : isReconnecting
+            ? "bg-amber-50/90 hover:bg-amber-100/80 border-amber-200/90 text-amber-800"
+            : "bg-rose-50/90 hover:bg-rose-100/80 border-rose-200/90 text-rose-800"
+        }`}
+        title="Click to inspect real-time data sources and network telemetry"
+        aria-label="Real-time Connection Status"
+      >
+        <span
+          className={`w-2 h-2 rounded-full ${
+            isTrulyLive
+              ? "bg-emerald-500 animate-pulse"
+              : isReconnecting
+              ? "bg-amber-500 animate-ping"
+              : "bg-rose-500"
+          }`}
+        />
+        <span className="font-bold text-[11px] tracking-wide">
+          {isTrulyLive ? "LIVE" : isReconnecting ? "RECONNECTING" : "OFFLINE"}
+        </span>
 
-      {connectionState === "DEGRADED" && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-700">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-          <span className="font-semibold text-[11px]">DEGRADED</span>
-          {latencyMs > 0 && <span className="text-[10px] text-amber-600/80 font-mono">({latencyMs}ms)</span>}
-        </div>
-      )}
-
-      {connectionState === "OFFLINE" && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 border border-rose-200/80 text-rose-700">
-          <WifiOff className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-          <span className="font-semibold text-[11px]">OFFLINE</span>
-        </div>
-      )}
-
-      {connectionState === "SYNCING" && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-blue-700">
-          <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />
-          <span className="font-semibold text-[11px]">
-            {syncProgress ? `SYNCING (${syncProgress.current}/${syncProgress.total})` : "SYNCING..."}
+        {latencyMs > 0 && isTrulyLive && (
+          <span className="text-[10px] text-emerald-600/80 font-mono hidden sm:inline">
+            ({latencyMs}ms)
           </span>
-        </div>
-      )}
+        )}
 
-      {/* Pending Sync Count Pill / Button */}
-      {pendingSyncCount > 0 && (
-        <button
-          onClick={handleManualSync}
-          disabled={connectionState === "SYNCING"}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 font-semibold text-xs transition-all shadow-xs"
-          title="Click to sync outbox queue with server"
-        >
-          <RefreshCw className={`w-3 h-3 ${connectionState === "SYNCING" ? "animate-spin" : ""}`} />
-          <span>{pendingSyncCount} waiting to sync</span>
-        </button>
-      )}
+        <ChevronDown className="w-3 h-3 text-slate-400" />
+      </button>
 
-      {/* Last Sync Timestamp */}
-      {lastSyncTime && (
-        <div className="hidden 2xl:flex items-center gap-1 text-[11px] text-slate-400">
-          <Clock className="w-3 h-3 text-slate-400" />
-          <span>Sync: {lastSyncTime}</span>
+      {/* Interactive Telemetry & Active Sources Popover */}
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-slate-200/90 rounded-2xl shadow-floating z-50 p-4 space-y-3.5 text-xs animate-in fade-in slide-in-from-top-2 duration-150">
+          {/* Header */}
+          <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-brand-600" />
+              <div>
+                <h4 className="font-bold text-slate-900 text-xs">Real-Time Telemetry Hub</h4>
+                <p className="text-[10px] text-slate-400">Section 41 Gateway Observability</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Core Transport Matrix */}
+          <div className="grid grid-cols-2 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100">
+            <div>
+              <span className="text-[10px] text-slate-400 font-semibold block uppercase">WebSocket Link</span>
+              <span
+                className={`font-bold text-xs inline-flex items-center gap-1 ${
+                  wsConnected ? "text-emerald-700" : "text-amber-700"
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
+                {wsConnected ? "Connected (All)" : "Reconnecting..."}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 font-semibold block uppercase">HTTP Gateway Latency</span>
+              <span className="font-mono font-bold text-xs text-slate-700">
+                {latencyMs > 0 ? `${latencyMs} ms` : "Unreachable"}
+              </span>
+            </div>
+          </div>
+
+          {/* Last Event / Sync Status */}
+          <div className="space-y-1 text-[11px] text-slate-500 px-1">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Latest Live Broadcast:</span>
+              <span className="font-medium text-slate-700 truncate max-w-[170px]">
+                {lastEventTime || "Awaiting incoming stream"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Outbox Queue:</span>
+              <span className="font-medium text-slate-700">
+                {pendingSyncCount > 0 ? `${pendingSyncCount} reports pending` : "All records synced"}
+              </span>
+            </div>
+          </div>
+
+          {/* Active Data Sources Section */}
+          <div className="space-y-1.5 pt-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block px-1">
+              Active Ingestion Streams ({activeSources.length})
+            </span>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {activeSources.map((source) => (
+                <div
+                  key={source.id}
+                  className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-100 hover:border-slate-200 transition-colors"
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="font-semibold text-slate-800 text-[11px] truncate">
+                        {source.name}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 block truncate">
+                      {source.category} • {source.description}
+                    </span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] font-mono text-emerald-600 block">
+                      {source.latencyMs}ms
+                    </span>
+                    <span className="text-[9px] text-slate-400 block">{source.lastUpdated}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer Action Buttons */}
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+            <button
+              onClick={handleReconnect}
+              className="flex-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Ping & Refresh</span>
+            </button>
+            {pendingSyncCount > 0 && (
+              <button
+                onClick={handleManualSync}
+                className="flex-1 px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Sync Outbox ({pendingSyncCount})</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 };
-

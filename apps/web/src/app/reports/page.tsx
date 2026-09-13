@@ -27,6 +27,7 @@ import { offlineStore, OfflineIncidentReport } from "@/lib/offline-store";
 import { useConnectionStore } from "@/lib/connection-store";
 import { syncManager } from "@/lib/sync-manager";
 import { formatRelativeTime } from "@/lib/utils";
+import { useToast } from "@/components/ui/ToastProvider";
 
 const INCIDENT_TYPES = [
   { id: "landslide", label: "Landslide / Mudslide", icon: Mountain, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
@@ -44,6 +45,7 @@ const SEVERITIES = [
 ];
 
 export default function FieldReportsPage() {
+  const { addToast } = useToast();
   const { connectionState, pendingSyncCount, syncProgress, lastSyncTime, refreshPendingCount } =
     useConnectionStore();
 
@@ -112,7 +114,11 @@ export default function FieldReportsPage() {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert("Photo size exceeds 5MB limit.");
+        addToast({
+          title: "Image Too Large",
+          description: "Photo size exceeds 5MB limit. Please choose a smaller photo.",
+          type: "warning",
+        });
         return;
       }
       setPhotoName(file.name);
@@ -127,7 +133,11 @@ export default function FieldReportsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !description.trim()) {
-      alert("Please provide an incident title and field description.");
+      addToast({
+        title: "Missing Information",
+        description: "Please provide an incident title and field description.",
+        type: "warning",
+      });
       return;
     }
 
@@ -177,7 +187,11 @@ export default function FieldReportsPage() {
       setTimeout(() => setFeedbackMsg(null), 6000);
     } catch (err) {
       console.error("Failed to save report to IndexedDB:", err);
-      alert("Storage error: Failed to save report locally.");
+      addToast({
+        title: "Storage Error",
+        description: "Failed to store report in local IndexedDB outbox.",
+        type: "error",
+      });
     }
   };
 

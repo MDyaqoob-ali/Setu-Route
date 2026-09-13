@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Package,
@@ -15,18 +15,28 @@ import {
   CheckCircle2,
   ArrowRight,
   ShieldAlert,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { Delivery } from "@/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
-import { LoadingState } from "@/components/ui/LoadingState";
+import { LoadingState, TableSkeleton } from "@/components/ui/LoadingState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { formatDateTime, formatRelativeTime } from "@/lib/utils";
 import { TruckDetailsModal, TruckData } from "@/components/vehicles/TruckDetailsModal";
+import { useToast } from "@/components/ui/ToastProvider";
+
+type SortField = "consignment_code" | "title" | "cargo_category" | "priority" | "destination_name" | "status";
 
 export default function DeliveriesPage() {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
+
   const [selectedPriority, setSelectedPriority] = useState<string>("ALL");
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -34,7 +44,13 @@ export default function DeliveriesPage() {
   const [activeTruck, setActiveTruck] = useState<TruckData | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // New Delivery Form State
+  // Sorting & Pagination
+  const [sortField, setSortField] = useState<SortField>("consignment_code");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 10;
+
+  // New Delivery Form State & Validation
   const [newDelivery, setNewDelivery] = useState({
     title: "",
     cargo_category: "Medical Supplies",
@@ -50,8 +66,16 @@ export default function DeliveriesPage() {
     planned_departure: new Date().toISOString(),
     expected_delivery: new Date(Date.now() + 86400000).toISOString(),
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  const { data: deliveries, isLoading } = useQuery<Delivery[]>({
+  const {
+    data: deliveries,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery<Delivery[]>({
     queryKey: ["deliveries", selectedPriority, selectedStatus],
     queryFn: () => {
       let endpoint = "/deliveries?";
@@ -59,6 +83,7 @@ export default function DeliveriesPage() {
       if (selectedStatus !== "ALL") endpoint += `status=${selectedStatus}&`;
       return apiClient<Delivery[]>(endpoint);
     },
+    refetchInterval: 6000,
   });
 
   const { data: deliveryEvents } = useQuery<any[]>({
@@ -68,27 +93,114 @@ export default function DeliveriesPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => apiClient<Delivery>("/deliveries", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-    onSuccess: () => {
+    mutationFn: (data: any) =>
+      apiClient<Delivery>("/deliveries", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["deliveries"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       setIsCreateModalOpen(false);
+      setFormErrors({});
+      setNewDelivery({
+        title: "",
+        cargo_category: "Medical Supplies",
+        cargo_description: "",
+        weight_tons: 5.0,
+        priority: "HIGH",
+        origin_name: "Guwahati Central Depot",
+        origin_lat: 26.1445,
+        origin_lng: 91.7362,
+        destination_name: "Imphal Hospital Depot",
+        destination_lat: 24.8170,
+        destination_lng: 93.9368,
+        planned_departure: new Date().toISOString(),
+        expected_delivery: new Date(Date.now() + 86400000).toISOString(),
+      });
+      addToast({
+        title: "Consignment Created",
+        description: `Manifest ${created.consignment_code} registered with automated telemetry tracking.`,
+        type: "success",
+      });
+    },
+    onError: (err: any) => {
+      setFormErrors({ submit: err.message || "Failed to create consignment manifest." });
     },
   });
 
-  const filteredDeliveries = (deliveries || []).filter((d) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      d.consignment_code.toLowerCase().includes(q) ||
-      d.title.toLowerCase().includes(q) ||
-      d.cargo_category.toLowerCase().includes(q) ||
-      d.destination_name.toLowerCase().includes(q)
-    );
-  });
+  const validateDeliveryForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (!newDelivery.title.trim()) {
+      errors.title = "Consignment title is required.";
+    }
+    if (!newDelivery.origin_name.trim()) {
+      errors.origin_name = "Origin depot is required.";
+    }
+    if (!newDelivery.destination_name.trim()) {
+      errors.destination_name = "Destination terminal is required.";
+    }
+    if (isNaN(newDelivery.weight_tons) || newDelivery.weight_tons <= 0) {
+      errors.weight_tons = "Payload weight must be greater than 0.";
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateDeliveryForm()) return;
+    createMutation.mutate(newDelivery);
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder((p) => (p === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const filteredAndSorted = useMemo(() => {
+    let result = (deliveries || []).filter((d) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        d.consignment_code.toLowerCase().includes(q) ||
+        d.title.toLowerCase().includes(q) ||
+        d.cargo_category.toLowerCase().includes(q) ||
+        d.destination_name.toLowerCase().includes(q)
+      );
+    });
+
+    result.sort((a, b) => {
+      let valA: any = a[sortField] ?? "";
+      let valB: any = b[sortField] ?? "";
+
+      if (sortField === "priority") {
+        const priorityRank: Record<string, number> = {
+          CRITICAL: 3,
+          HIGH: 2,
+          NORMAL: 1,
+        };
+        valA = priorityRank[a.priority] || 0;
+        valB = priorityRank[b.priority] || 0;
+      }
+
+      if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+      if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [deliveries, searchQuery, sortField, sortOrder]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
+  const paginatedDeliveries = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredAndSorted.slice(start, start + pageSize);
+  }, [filteredAndSorted, currentPage, pageSize]);
 
   return (
     <div className="space-y-6">
@@ -127,7 +239,10 @@ export default function DeliveriesPage() {
             type="text"
             placeholder="Search consignment code, title, cargo or destination..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             className="w-full bg-slate-50/70 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
           />
         </div>
@@ -137,7 +252,10 @@ export default function DeliveriesPage() {
             <span className="text-xs font-medium text-slate-500 shrink-0">Priority:</span>
             <select
               value={selectedPriority}
-              onChange={(e) => setSelectedPriority(e.target.value)}
+              onChange={(e) => {
+                setSelectedPriority(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full sm:w-36 bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
             >
               <option value="ALL">All Priorities</option>
@@ -151,7 +269,10 @@ export default function DeliveriesPage() {
             <span className="text-xs font-medium text-slate-500 shrink-0">State:</span>
             <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => {
+                setSelectedStatus(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full sm:w-36 bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
             >
               <option value="ALL">All States</option>
@@ -161,111 +282,182 @@ export default function DeliveriesPage() {
               <option value="DELAYED">Delayed</option>
             </select>
           </div>
+
+          <button
+            onClick={() => refetch()}
+            className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+            title="Refresh Deliveries"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
         </div>
       </div>
 
       {/* Deliveries Table */}
       {isLoading ? (
-        <LoadingState message="Fetching consignment records..." />
-      ) : filteredDeliveries.length === 0 ? (
+        <TableSkeleton rows={6} />
+      ) : isError ? (
+        <ErrorState
+          title="Consignment Data Unavailable"
+          message="Unable to load active delivery manifests from logistics server."
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          errorDetails={error}
+        />
+      ) : filteredAndSorted.length === 0 ? (
         <EmptyState
           title="No Deliveries Found"
           description="No active supply consignments match the selected filters."
         />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-card">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 uppercase tracking-wider text-[11px] font-semibold">
-              <tr>
-                <th className="py-3.5 px-5">Consignment</th>
-                <th className="py-3.5 px-5">Cargo Details</th>
-                <th className="py-3.5 px-5">Assigned Fleet Truck</th>
-                <th className="py-3.5 px-5">Priority</th>
-                <th className="py-3.5 px-5">Origin → Destination</th>
-                <th className="py-3.5 px-5">Delay Status</th>
-                <th className="py-3.5 px-5 text-right">Delivery State</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filteredDeliveries.map((deliv) => (
-                <tr
-                  key={deliv.id}
-                  onClick={() => setActiveDelivery(deliv)}
-                  className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
-                >
-                  <td className="py-4 px-5 font-mono font-bold text-slate-900 group-hover:text-brand-600">
-                    <div className="flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-brand-600" />
-                      <span>{deliv.consignment_code}</span>
+        <div className="space-y-3">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-card">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 uppercase tracking-wider text-[11px] font-semibold select-none">
+                <tr>
+                  <th
+                    onClick={() => handleSort("consignment_code")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Consignment</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
                     </div>
-                  </td>
-                  <td className="py-4 px-5 max-w-xs">
-                    <p className="font-semibold text-slate-900 truncate">{deliv.title}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{deliv.weight_tons} Tons • {deliv.cargo_category}</p>
-                  </td>
-                  <td className="py-4 px-5">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveTruck({
-                          registration_number: "AS-01-GC-4481",
-                          driver_name: "Capt. Biren Roy",
-                          vehicle_type: "Heavy Truck (16T)",
-                          speed_kmh: 54,
-                          fuel_level: 78,
-                          status: "MOVING",
-                          corridor: "NH-6 Shillong-Silchar",
-                          destination: deliv.destination_name,
-                          cargo: deliv.title,
-                          priority: deliv.priority,
-                          eta: "1h 45m",
-                        });
-                      }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold border border-brand-200 transition-colors"
-                    >
-                      <Truck className="w-3.5 h-3.5" />
-                      <span>AS-01-GC</span>
-                    </button>
-                  </td>
-                  <td className="py-4 px-5">
-                    <StatusBadge status={deliv.priority} size="sm" />
-                  </td>
-                  <td className="py-4 px-5 text-slate-600">
-                    <div className="flex items-center gap-1.5 font-medium">
-                      <span className="truncate">{deliv.origin_name}</span>
-                      <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="font-semibold text-slate-900 truncate">{deliv.destination_name}</span>
+                  </th>
+                  <th
+                    onClick={() => handleSort("title")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Cargo Details</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
                     </div>
-                  </td>
-                  <td className="py-4 px-5">
-                    {deliv.delay_minutes > 0 ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-rose-50 text-rose-700 font-semibold border border-rose-200 text-[11px]">
-                        +{deliv.delay_minutes} min
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 text-[11px]">
-                        On Schedule
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-4 px-5 text-right">
-                    <StatusBadge status={deliv.status} size="sm" />
-                  </td>
+                  </th>
+                  <th className="py-3.5 px-5">Weight</th>
+                  <th
+                    onClick={() => handleSort("priority")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Priority</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort("destination_name")}
+                    className="py-3.5 px-5 cursor-pointer hover:text-slate-700"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Origin → Destination</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort("status")}
+                    className="py-3.5 px-5 text-right cursor-pointer hover:text-slate-700"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Delivery State</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    </div>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {paginatedDeliveries.map((deliv) => (
+                  <tr
+                    key={deliv.id}
+                    onClick={() => setActiveDelivery(deliv)}
+                    className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
+                  >
+                    <td className="py-4 px-5 font-mono font-bold text-slate-900 group-hover:text-brand-600">
+                      <div className="flex items-center gap-2">
+                        <Truck className="w-4 h-4 text-brand-600" />
+                        <span>{deliv.consignment_code}</span>
+                      </div>
+                    </td>
+                    <td className="py-4 px-5 max-w-xs">
+                      <span className="font-semibold text-slate-900 block truncate">{deliv.title}</span>
+                      <span className="text-[11px] text-slate-400 block truncate mt-0.5">
+                        {deliv.cargo_category}
+                      </span>
+                    </td>
+                    <td className="py-4 px-5 font-semibold text-slate-800">
+                      {deliv.weight_tons} Tons
+                    </td>
+                    <td className="py-4 px-5">
+                      <StatusBadge status={deliv.priority} size="sm" />
+                    </td>
+                    <td className="py-4 px-5">
+                      <div className="flex items-center gap-1.5 text-slate-600 font-medium">
+                        <span className="truncate max-w-[120px]">{deliv.origin_name}</span>
+                        <ArrowRight className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span className="truncate max-w-[120px] font-semibold text-slate-900">
+                          {deliv.destination_name}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-4 px-5 text-right">
+                      <StatusBadge status={deliv.status} size="sm" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-2 text-xs text-slate-500">
+              <span>
+                Page <strong className="text-slate-800">{currentPage}</strong> of{" "}
+                <strong className="text-slate-800">{totalPages}</strong>
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  aria-label="Previous Page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                {Array.from({ length: totalPages }).map((_, idx) => (
+                  <button
+                    key={idx + 1}
+                    onClick={() => setCurrentPage(idx + 1)}
+                    className={`w-7 h-7 rounded-lg text-xs font-semibold ${
+                      currentPage === idx + 1
+                        ? "bg-brand-600 text-white shadow-xs"
+                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  aria-label="Next Page"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Delivery Detail Modal */}
+      {/* Delivery Inspection Modal */}
       {activeDelivery && (
         <Modal
           isOpen={!!activeDelivery}
           onClose={() => setActiveDelivery(null)}
-          title={`Consignment Manifest: ${activeDelivery.consignment_code}`}
+          title={`Manifest: ${activeDelivery.consignment_code}`}
           description={activeDelivery.title}
-          maxWidth="xl"
+          maxWidth="2xl"
         >
           <div className="space-y-5 text-xs text-slate-700">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -273,79 +465,35 @@ export default function DeliveriesPage() {
                 <StatusBadge status={activeDelivery.priority} size="md" />
                 <StatusBadge status={activeDelivery.status} size="md" />
               </div>
-              <span className="text-slate-700 font-bold bg-slate-100 px-3 py-1 rounded-lg">{activeDelivery.cargo_category}</span>
+              <span className="font-semibold text-slate-800 bg-slate-100 px-3 py-1 rounded-lg">
+                Weight: {activeDelivery.weight_tons} Tons
+              </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
               <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Origin Depot</span>
-                <span className="text-slate-900 font-bold mt-0.5 block">{activeDelivery.origin_name}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Destination Depot</span>
-                <span className="text-slate-900 font-bold mt-0.5 block">{activeDelivery.destination_name}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Consignment Mass</span>
-                <span className="text-slate-800 font-semibold mt-0.5 block">{activeDelivery.weight_tons} Metric Tons</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Estimated Delivery</span>
-                <span className="text-slate-800 font-semibold mt-0.5 block">{formatDateTime(activeDelivery.expected_delivery)}</span>
-              </div>
-            </div>
-
-            {/* Transport Truck Box */}
-            <div className="bg-brand-50/70 p-3 rounded-xl border border-brand-100 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center font-bold">
-                  <Truck className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="text-[10px] text-brand-600 font-bold block">Assigned Transport Unit</span>
-                  <strong className="text-slate-900 text-xs">AS-01-GC-4481 (Heavy Convoy 16T)</strong>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setActiveTruck({
-                    registration_number: "AS-01-GC-4481",
-                    driver_name: "Capt. Biren Roy",
-                    vehicle_type: "Heavy Truck (16T)",
-                    speed_kmh: 54,
-                    fuel_level: 78,
-                    status: "MOVING",
-                    corridor: "NH-6 Shillong-Silchar",
-                    destination: activeDelivery.destination_name,
-                    cargo: activeDelivery.title,
-                    priority: activeDelivery.priority,
-                    eta: "1h 45m",
-                  });
-                }}
-                className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-semibold flex items-center gap-1 transition-colors"
-              >
-                <Truck className="w-3 h-3" />
-                <span>Inspect Truck Telemetry</span>
-              </button>
-            </div>
-
-            {activeDelivery.delay_reason && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 space-y-1">
-                <span className="font-bold uppercase text-[10px] tracking-wider flex items-center gap-1.5 text-rose-700">
-                  <ShieldAlert className="w-4 h-4 text-rose-600" />
-                  Delay Diagnostic Explanation
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Origin Depot</span>
+                <span className="font-semibold text-slate-900 text-sm mt-0.5 block">{activeDelivery.origin_name}</span>
+                <span className="text-[11px] text-slate-500 font-mono mt-0.5 block">
+                  {activeDelivery.origin_lat.toFixed(4)}°N, {activeDelivery.origin_lng.toFixed(4)}°E
                 </span>
-                <p className="text-xs leading-relaxed">{activeDelivery.delay_reason}</p>
               </div>
-            )}
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Destination Terminal</span>
+                <span className="font-semibold text-slate-900 text-sm mt-0.5 block">{activeDelivery.destination_name}</span>
+                <span className="text-[11px] text-slate-500 font-mono mt-0.5 block">
+                  {activeDelivery.destination_lat.toFixed(4)}°N, {activeDelivery.destination_lng.toFixed(4)}°E
+                </span>
+              </div>
+            </div>
 
-            {/* Delivery Milestones Timeline */}
+            {/* Delivery Events Timeline */}
             <div>
-              <h4 className="text-slate-900 font-bold mb-3 text-xs">Transit Milestone Events</h4>
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {(deliveryEvents || []).map((evt) => (
-                  <div key={evt.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-start gap-3">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+              <h4 className="font-bold text-slate-800 mb-2">Consignment Chain-of-Custody Events</h4>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {(deliveryEvents || []).map((evt: any) => (
+                  <div key={evt.id} className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/50 flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold text-slate-800 block text-xs">{evt.title}</span>
                       <p className="text-slate-500 text-[11px] mt-0.5">{evt.description}</p>
@@ -367,28 +515,30 @@ export default function DeliveriesPage() {
         description="Register a new freight dispatch for dynamic routing and telemetry monitoring"
         maxWidth="lg"
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createMutation.mutate(newDelivery);
-          }}
-          className="space-y-4 text-xs"
-        >
+        <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
+          {formErrors.submit && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-medium">
+              {formErrors.submit}
+            </div>
+          )}
+
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Consignment Title</label>
+            <label className="block font-semibold text-slate-700 mb-1">Consignment Title *</label>
             <input
               type="text"
-              required
               value={newDelivery.title}
               onChange={(e) => setNewDelivery({ ...newDelivery, title: e.target.value })}
               placeholder="e.g. Life-Saving Medical Vaccines Batch #84"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+              className={`w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs focus:ring-2 transition-all ${
+                formErrors.title ? "border-rose-400 focus:ring-rose-400/20" : "border-slate-200 focus:ring-brand-500/20"
+              }`}
             />
+            {formErrors.title && <p className="text-[11px] text-rose-600 mt-1">{formErrors.title}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Category</label>
+              <label className="block font-semibold text-slate-700 mb-1">Category</label>
               <select
                 value={newDelivery.cargo_category}
                 onChange={(e) => setNewDelivery({ ...newDelivery, cargo_category: e.target.value })}
@@ -402,7 +552,7 @@ export default function DeliveriesPage() {
               </select>
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Priority</label>
+              <label className="block font-semibold text-slate-700 mb-1">Priority</label>
               <select
                 value={newDelivery.priority}
                 onChange={(e) => setNewDelivery({ ...newDelivery, priority: e.target.value })}
@@ -417,48 +567,57 @@ export default function DeliveriesPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Origin Depot</label>
+              <label className="block font-semibold text-slate-700 mb-1">Origin Depot *</label>
               <input
                 type="text"
                 value={newDelivery.origin_name}
                 onChange={(e) => setNewDelivery({ ...newDelivery, origin_name: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                className={`w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs ${
+                  formErrors.origin_name ? "border-rose-400" : "border-slate-200"
+                }`}
               />
+              {formErrors.origin_name && <p className="text-[11px] text-rose-600 mt-1">{formErrors.origin_name}</p>}
             </div>
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Destination Terminal</label>
+              <label className="block font-semibold text-slate-700 mb-1">Destination Terminal *</label>
               <input
                 type="text"
                 value={newDelivery.destination_name}
                 onChange={(e) => setNewDelivery({ ...newDelivery, destination_name: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                className={`w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs ${
+                  formErrors.destination_name ? "border-rose-400" : "border-slate-200"
+                }`}
               />
+              {formErrors.destination_name && <p className="text-[11px] text-rose-600 mt-1">{formErrors.destination_name}</p>}
             </div>
           </div>
 
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Payload Weight (Metric Tons)</label>
+            <label className="block font-semibold text-slate-700 mb-1">Payload Weight (Metric Tons) *</label>
             <input
               type="number"
               step="0.1"
               value={newDelivery.weight_tons}
               onChange={(e) => setNewDelivery({ ...newDelivery, weight_tons: parseFloat(e.target.value) || 0 })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+              className={`w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs ${
+                formErrors.weight_tons ? "border-rose-400" : "border-slate-200"
+              }`}
             />
+            {formErrors.weight_tons && <p className="text-[11px] text-rose-600 mt-1">{formErrors.weight_tons}</p>}
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={() => setIsCreateModalOpen(false)}
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs"
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 font-semibold text-xs transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors disabled:opacity-50"
             >
               <Plus className="w-4 h-4" />
               <span>{createMutation.isPending ? "Registering..." : "Register Manifest"}</span>

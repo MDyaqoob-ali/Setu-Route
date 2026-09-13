@@ -15,21 +15,49 @@ import {
   Mountain,
   ShieldAlert,
   Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
-import { LoadingState } from "@/components/ui/LoadingState";
+import { CardSkeleton } from "@/components/ui/LoadingState";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 export default function AnalyticsPage() {
-  const { data: analytics, isLoading } = useQuery<any>({
+  const {
+    data: analytics,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery<any>({
     queryKey: ["dashboard-analytics"],
     queryFn: () => apiClient<any>("/dashboard/analytics"),
     refetchInterval: 15000,
   });
 
-  if (isLoading || !analytics) {
+  if (isLoading) {
     return (
-      <div className="h-[70vh] flex items-center justify-center">
-        <LoadingState message="Compiling query-backed North-East logistics intelligence metrics..." />
+      <div className="space-y-6 animate-in fade-in duration-200">
+        <div className="h-20 rounded-2xl bg-white border border-slate-200/90 animate-pulse" />
+        <CardSkeleton count={4} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="h-72 rounded-2xl bg-white border border-slate-200/90 animate-pulse" />
+          <div className="h-72 rounded-2xl bg-white border border-slate-200/90 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !analytics) {
+    return (
+      <div className="p-6">
+        <ErrorState
+          title="Operational Analytics Stream Disrupted"
+          message="Unable to compile corridor vulnerability statistics from analytics engine."
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          errorDetails={error}
+        />
       </div>
     );
   }
@@ -50,9 +78,18 @@ export default function AnalyticsPage() {
             Real query-backed telemetry: accessibility trends, delivery delays, incident distributions & corridor resilience.
           </p>
         </div>
-        <span className="px-3 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold self-start sm:self-auto">
-          DATA TRUST: {analytics.data_trust_badge || "LIVE"}
-        </span>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <span className="px-3 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+            DATA TRUST: {analytics.data_trust_badge || "LIVE"}
+          </span>
+          <button
+            onClick={() => refetch()}
+            className="p-1.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-100 transition-colors"
+            title="Refresh Analytics"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       {/* Top 4 KPI Metrics */}

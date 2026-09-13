@@ -35,8 +35,9 @@ import { DashboardSummary } from "@/types";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { MapLibreView } from "@/components/map/MapLibreView";
-import { LoadingState } from "@/components/ui/LoadingState";
+import { LoadingState, CardSkeleton, MapSkeleton } from "@/components/ui/LoadingState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { formatRelativeTime } from "@/lib/utils";
 import { useToast } from "@/components/ui/ToastProvider";
 
@@ -47,7 +48,7 @@ export default function CommandCenterPage() {
   const [selectedType, setSelectedType] = useState<string>("ALL");
   const [showSourcesPanel, setShowSourcesPanel] = useState<boolean>(false);
 
-  const { data: summary, isLoading, error } = useQuery<DashboardSummary>({
+  const { data: summary, isLoading, error, refetch } = useQuery<DashboardSummary>({
     queryKey: ["dashboard-summary"],
     queryFn: () => apiClient<DashboardSummary>("/dashboard/summary"),
     refetchInterval: 10000,
@@ -112,8 +113,22 @@ export default function CommandCenterPage() {
 
   if (isLoading) {
     return (
-      <div className="h-[70vh] flex items-center justify-center">
-        <LoadingState message="Aggregating North-East logistics telemetry and corridor risk models..." />
+      <div className="space-y-6 text-xs animate-in fade-in duration-200">
+        <div className="h-20 rounded-2xl bg-white border border-slate-200/90 animate-pulse" />
+        <CardSkeleton count={4} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 h-[480px]">
+            <MapSkeleton message="Initializing GIS Road Graph & Live Hazard Layer..." />
+          </div>
+          <div className="h-[480px] bg-white rounded-2xl border border-slate-200/90 animate-pulse p-5 space-y-4">
+            <div className="h-4 w-36 bg-slate-200 rounded" />
+            <div className="space-y-2.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-16 bg-slate-100 rounded-xl" />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -121,11 +136,11 @@ export default function CommandCenterPage() {
   if (error || !summary) {
     return (
       <div className="p-6">
-        <EmptyState
-          title="Network Connection Failed"
-          description="Unable to connect to NE-ROUTE API server. Ensure backend is running on http://127.0.0.1:8008."
-          actionLabel="Retry Connection"
-          onAction={() => window.location.reload()}
+        <ErrorState
+          title="Command Center Telemetry Disconnected"
+          message="Unable to connect to NE-ROUTE operations server. Operating in offline/degraded mode."
+          onRetry={() => refetch()}
+          errorDetails={error}
         />
       </div>
     );
