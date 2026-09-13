@@ -14,9 +14,11 @@ from fastapi.staticfiles import StaticFiles
 from src.core.config import settings
 from src.core.database import init_db
 from src.ws.connection_manager import ws_manager
+import asyncio
 from src.routers import (
-    auth, dashboard, incidents, vehicles, deliveries, roads, map, alerts, routes, sync, risk, simulation, admin, statistics
+    auth, dashboard, incidents, vehicles, deliveries, roads, map, alerts, routes, sync, risk, simulation, admin, statistics, intelligence
 )
+from src.services.external_intelligence import ingestion_coordinator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("neroute.api")
@@ -28,6 +30,11 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing NE-ROUTE database...")
     await init_db()
     logger.info("NE-ROUTE Database initialized successfully.")
+
+    # Trigger background ingestion cycle for external real-time intelligence
+    logger.info("Triggering background external intelligence ingestion cycle...")
+    asyncio.create_task(ingestion_coordinator.sync_all_sources())
+
     yield
     logger.info("Shutting down NE-ROUTE API...")
 
@@ -71,6 +78,8 @@ app.include_router(risk.router)  # Also mount at root for /risk/corridors/{id}
 app.include_router(simulation.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(statistics.router, prefix=settings.API_V1_STR)
+app.include_router(intelligence.router, prefix=settings.API_V1_STR)
+app.include_router(intelligence.router)  # Also mount at root for direct /intelligence/summary
 
 @app.get("/health")
 async def health_check():

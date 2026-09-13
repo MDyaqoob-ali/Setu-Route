@@ -43,8 +43,38 @@ async def get_db():
         finally:
             await session.close()
 
+def _migrate_columns_sync(connection):
+    from sqlalchemy import text
+    try:
+        res = connection.execute(text("PRAGMA table_info(incidents)"))
+        existing_cols = {row[1] for row in res.fetchall()}
+        new_cols = [
+            ("source_name", "VARCHAR(100) DEFAULT 'Official PWD'"),
+            ("source_url", "VARCHAR(500)"),
+            ("source_trust_level", "VARCHAR(50) DEFAULT 'OFFICIAL'"),
+            ("source_event_id", "VARCHAR(150)"),
+            ("raw_source_reference", "JSON DEFAULT '{}'"),
+            ("confidence_score", "FLOAT DEFAULT 0.9"),
+            ("affected_road_code", "VARCHAR(50)"),
+            ("impact_geometry_type", "VARCHAR(30) DEFAULT 'POINT'"),
+            ("impact_geometry_geojson", "JSON"),
+            ("expires_at", "DATETIME"),
+            ("alternative_available", "BOOLEAN DEFAULT 1"),
+            ("is_live_external", "BOOLEAN DEFAULT 0"),
+        ]
+        for col_name, col_type in new_cols:
+            if col_name not in existing_cols:
+                try:
+                    connection.execute(text(f"ALTER TABLE incidents ADD COLUMN {col_name} {col_type}"))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
 async def init_db():
     import src.models  # noqa: F401 - Register models with metadata
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_migrate_columns_sync)
+
 

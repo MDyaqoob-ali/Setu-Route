@@ -131,8 +131,21 @@ class Incident(Base):
     reporter_contact = Column(String(50), nullable=True)
     estimated_clearance_time = Column(DateTime, nullable=True)
     affected_traffic_direction = Column(String(50), default="BOTH")  # BOTH, NORTHBOUND, SOUTHBOUND, EASTBOUND, WESTBOUND
-    verification_status = Column(String(30), default="VERIFIED")  # VERIFIED, UNVERIFIED, CITIZEN_REPORT
+    verification_status = Column(String(30), default="VERIFIED")  # VERIFIED, UNVERIFIED, CITIZEN_REPORT, CONFIRMED, CONFLICTING
     photos_json = Column(JSON, default=list)  # list of URLs or paths
+    # External Intelligence & Provenance fields
+    source_name = Column(String(100), default="Official PWD", nullable=True)
+    source_url = Column(String(500), nullable=True)
+    source_trust_level = Column(String(50), default="OFFICIAL", nullable=False)  # OFFICIAL, VERIFIED_PROVIDER, REPUTABLE_NEWS, UNVERIFIED
+    source_event_id = Column(String(150), nullable=True, index=True)
+    raw_source_reference = Column(JSON, default=dict)
+    confidence_score = Column(Float, default=0.9)  # 0.0 to 1.0
+    affected_road_code = Column(String(50), nullable=True, index=True)
+    impact_geometry_type = Column(String(30), default="POINT")  # POINT, LINESTRING, POLYGON
+    impact_geometry_geojson = Column(JSON, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    alternative_available = Column(Boolean, default=True)
+    is_live_external = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
@@ -371,3 +384,22 @@ class AuditLog(Base):
     details_json = Column(JSON, nullable=True)
     ip_address = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
+
+
+class SourceHealth(Base):
+    __tablename__ = "source_health"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    source_name = Column(String(100), unique=True, index=True, nullable=False)
+    source_category = Column(String(50), nullable=False)  # SEISMIC, WEATHER, DISASTER, ROAD_AGENCY, NEWS
+    trust_level = Column(String(50), nullable=False)  # OFFICIAL, VERIFIED_PROVIDER, REPUTABLE_NEWS, UNVERIFIED
+    status = Column(String(30), default="ONLINE")  # ONLINE, DEGRADED, OFFLINE
+    last_sync_at = Column(DateTime, default=utc_now, nullable=False)
+    sync_interval_sec = Column(Integer, default=300)
+    incident_count = Column(Integer, default=0)
+    last_latency_ms = Column(Integer, default=0)
+    last_error_message = Column(Text, nullable=True)
+    endpoint_url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+

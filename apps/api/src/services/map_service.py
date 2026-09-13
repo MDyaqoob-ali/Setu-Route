@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -59,6 +60,21 @@ class MapService:
                     if not (min_lat <= inc.latitude <= max_lat and min_lng <= inc.longitude <= max_lng):
                         continue
 
+                # Calculate freshness state
+                now_utc = datetime.now(timezone.utc)
+                inc_created = inc.created_at
+                if inc_created.tzinfo is None:
+                    inc_created = inc_created.replace(tzinfo=timezone.utc)
+                age_hours = (now_utc - inc_created).total_seconds() / 3600.0
+                if age_hours <= 3:
+                    freshness = "LIVE"
+                elif age_hours <= 12:
+                    freshness = "RECENT"
+                elif age_hours <= 48:
+                    freshness = "STALE"
+                else:
+                    freshness = "EXPIRED"
+
                 features.append({
                     "type": "Feature",
                     "id": f"incident_{inc.id}",
@@ -76,10 +92,20 @@ class MapService:
                         "title": inc.title,
                         "description": inc.description,
                         "road_id": inc.road_id,
+                        "affected_road_code": inc.affected_road_code or inc.road_id,
                         "district_id": inc.district_id,
                         "reporter_name": inc.reporter_name,
                         "created_at": inc.created_at.isoformat(),
-                        "color": "#ef4444" if inc.severity == "CRITICAL" else ("#f97316" if inc.severity == "HIGH" else ("#f59e0b" if inc.severity == "MEDIUM" else "#3b82f6"))
+                        "color": "#ef4444" if inc.severity == "CRITICAL" else ("#f97316" if inc.severity == "HIGH" else ("#f59e0b" if inc.severity == "MEDIUM" else "#3b82f6")),
+                        "source_name": inc.source_name or "Official Feeds",
+                        "source_url": inc.source_url,
+                        "source_trust_level": inc.source_trust_level or "OFFICIAL",
+                        "source_event_id": inc.source_event_id,
+                        "confidence_score": round(inc.confidence_score or 0.85, 2),
+                        "verification_status": inc.verification_status or "VERIFIED",
+                        "freshness_state": freshness,
+                        "is_live_external": bool(inc.is_live_external),
+                        "alternative_available": bool(inc.alternative_available if inc.alternative_available is not None else True),
                     }
                 })
 

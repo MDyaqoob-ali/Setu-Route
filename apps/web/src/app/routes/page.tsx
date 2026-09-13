@@ -22,6 +22,7 @@ import {
   Sparkles,
   Gamepad2,
   RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import { apiClient, API_BASE_URL } from "@/lib/api-client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -495,6 +496,99 @@ export default function RoutesPage() {
             isSimulationActive={Boolean(liveData.active_simulation)}
           />
 
+          {/* Real-World Road Blockage Alert Card */}
+          {(activeRoute?.is_blocked || activeRoute?.route_status === "RED" || (activeRoute?.blocked_segments && activeRoute.blocked_segments.length > 0)) && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-rose-50 border-2 border-rose-500/80 shadow-md space-y-3.5 animate-in fade-in slide-in-from-top-2">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 mt-0.5">
+                    <AlertTriangle className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-600 text-white">
+                        🔴 CORRIDOR DIRECTLY BLOCKED
+                      </span>
+                      <span className="text-xs font-bold text-rose-900">
+                        Real-World Incident Detected On Route Centerline
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-extrabold text-slate-900 mt-1">
+                      {activeRoute.blocked_segments?.[0]?.name || activeRoute.name} is Inaccessible
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Commercial vehicles and standard freight cannot traverse this highway corridor.
+                    </p>
+                  </div>
+                </div>
+
+                {liveData.alternative_route && activeRouteKey === "primary" && (
+                  <button
+                    onClick={() => {
+                      setActiveRouteKey("alternative");
+                      addToast({
+                        title: "Detour Activated",
+                        description: `Switched route to ${liveData.alternative_route.name} bypassing blocked zone.`,
+                        type: "success",
+                      });
+                    }}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs transition-transform hover:scale-105 shrink-0 flex items-center justify-center gap-2"
+                  >
+                    <span>Switch to Clear Alternative</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Blocked Segments Detail Cards */}
+              <div className="space-y-2 pt-1">
+                {activeRoute.blocked_segments?.map((seg: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-white rounded-xl border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs shadow-2xs"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">{seg.name || `Blocked Segment ${idx + 1}`}</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 text-slate-700 border border-slate-200">
+                          {seg.road_code || "National Highway"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600">
+                        Disruption Cause: <strong className="text-rose-700">{seg.cause || "Debris Landslide / Slope Slip"}</strong> ({seg.severity || "CRITICAL"})
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 text-[11px]">
+                      {seg.source_url ? (
+                        <a
+                          href={seg.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-1 font-semibold"
+                        >
+                          <span>{seg.source || "Official Agency"}</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-600 font-medium">Source: {seg.source || "Official PWD"}</span>
+                      )}
+                      <span className="px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                        VERIFIED FEED
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {activeRoute.route_incident_correlation?.summary_narrative && (
+                <p className="text-[11px] text-rose-950 bg-rose-100/70 p-3 rounded-xl border border-rose-200/80 leading-relaxed font-medium">
+                  ℹ️ <strong>Intelligence Briefing:</strong> {activeRoute.route_incident_correlation.summary_narrative}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Main 2-Column Intelligence Layout */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Left 5 Cols: Candidate Routes Selector + Segment Breakdown */}
@@ -643,6 +737,20 @@ export default function RoutesPage() {
                     activeRouteKey === "primary" && liveData.alternative_route
                       ? liveData.alternative_route.waypoints
                       : liveData.primary_route?.waypoints
+                  }
+                  blockedRouteSegmentsGeojson={
+                    activeRoute?.blocked_segments?.length
+                      ? {
+                          type: "FeatureCollection",
+                          features: activeRoute.blocked_segments
+                            .filter((seg: any) => seg.coordinates && seg.coordinates.length >= 2)
+                            .map((seg: any) => ({
+                              type: "Feature",
+                              geometry: { type: "LineString", coordinates: seg.coordinates },
+                              properties: { ...seg },
+                            })),
+                        }
+                      : null
                   }
                   showLayerController={true}
                 />

@@ -492,8 +492,51 @@ class LiveRouteService:
             "is_recommended": not (has_blockage or base_risk >= 50),
             "waypoints": {"type": "LineString", "coordinates": waypoints_baseline},
             "segments": segments,
-            "verdict": verdict
+            "verdict": verdict,
+            "route_status": "GREEN",
+            "status_badge": "🟢 ROUTE CLEAR",
+            "status_title": "Route Clear",
+            "is_blocked": False,
+            "blocked_segments": [],
+            "affecting_incidents": []
         }
+
+        # Correlate live primary route with real-world verified incidents
+        try:
+            from src.services.route_incident_correlator import RouteIncidentCorrelator
+            async with AsyncSessionLocal() as db:
+                correlation = await RouteIncidentCorrelator.correlate_route(
+                    db=db,
+                    route_coordinates=waypoints_baseline,
+                    origin_name=origin_name,
+                    destination_name=dest_name,
+                    candidate_routes=candidate_routes
+                )
+                primary_route["route_status"] = correlation["route_status"]
+                primary_route["status_badge"] = correlation["status_badge"]
+                primary_route["status_title"] = correlation["status_title"]
+                primary_route["is_blocked"] = correlation["is_blocked"]
+                primary_route["blocked_segments"] = correlation["blocked_segments"]
+                primary_route["affecting_incidents"] = correlation["affecting_incidents"]
+                primary_route["incident_summary"] = correlation["summary"]
+                if correlation["is_blocked"]:
+                    has_blockage = True
+                    base_risk = max(base_risk, correlation["logistics_risk_score"])
+                    safety_score = min(safety_score, correlation["safety_score"])
+                    primary_route["safety_score"] = safety_score
+                    primary_route["logistics_risk_score"] = base_risk
+                    primary_route["is_recommended"] = False
+                    verdict = LiveRouteService.calculate_live_verdict(
+                        safety_score=safety_score,
+                        logistics_risk=base_risk,
+                        landslide_risk_pct=max_landslide,
+                        flood_risk_pct=max_flood,
+                        rain_probability_pct=max_rain,
+                        has_blocked_segment=True
+                    )
+                    primary_route["verdict"] = verdict
+        except Exception as e:
+            logger.warning(f"Live route incident correlation failed: {e}")
 
         # Alternative Route Candidate
         if len(candidate_routes) > 1:

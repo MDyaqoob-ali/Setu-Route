@@ -51,6 +51,7 @@ interface MapLibreViewProps {
   initialZoom?: number;
   highlightRouteGeojson?: any;
   alternateRouteGeojson?: any;
+  blockedRouteSegmentsGeojson?: any;
   onFeatureClick?: (feature: any) => void;
   onSelectCorridor?: (corridorCode: string) => void;
   className?: string;
@@ -530,12 +531,22 @@ export interface IncidentMapData {
   title: string;
   description?: string;
   road_id?: string;
+  affected_road_code?: string;
   district_id?: string;
   lat: number;
   lng: number;
   reporter_name?: string;
   created_at?: string;
   color?: string;
+  source_name?: string;
+  source_url?: string;
+  source_trust_level?: "OFFICIAL" | "VERIFIED_PROVIDER" | "REPUTABLE_NEWS" | "UNVERIFIED" | string;
+  source_event_id?: string;
+  confidence_score?: number;
+  verification_status?: string;
+  freshness_state?: "LIVE" | "RECENT" | "STALE" | "EXPIRED" | string;
+  is_live_external?: boolean;
+  alternative_available?: boolean;
 }
 
 const DEFAULT_INCIDENTS: IncidentMapData[] = [
@@ -598,6 +609,7 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
   initialZoom = 7.0,
   highlightRouteGeojson,
   alternateRouteGeojson,
+  blockedRouteSegmentsGeojson,
   onFeatureClick,
   onSelectCorridor,
   className,
@@ -946,6 +958,27 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
         severityText = "ADVISORY";
       }
 
+      // Provenance and Trust Level tags
+      const trust = (inc.source_trust_level || "OFFICIAL").toUpperCase();
+      let trustBadgeClass = "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
+      let trustShort = "L1 OFFICIAL";
+      if (trust === "VERIFIED_PROVIDER") {
+        trustBadgeClass = "bg-sky-500/20 text-sky-300 border-sky-500/30";
+        trustShort = "L2 VERIFIED";
+      } else if (trust === "REPUTABLE_NEWS") {
+        trustBadgeClass = "bg-amber-500/20 text-amber-300 border-amber-500/30";
+        trustShort = "L3 NEWS";
+      } else if (trust === "UNVERIFIED") {
+        trustBadgeClass = "bg-slate-500/20 text-slate-300 border-slate-500/30";
+        trustShort = "L4 UNVERIFIED";
+      }
+
+      const freshness = (inc.freshness_state || "LIVE").toUpperCase();
+      const freshnessDot = freshness === "LIVE" ? "bg-emerald-400 animate-pulse" : (freshness === "RECENT" ? "bg-amber-400" : "bg-slate-400");
+      const confPct = Math.round((inc.confidence_score ?? 0.85) * 100);
+      const roadDisplay = inc.affected_road_code || inc.road_id || "Highway Corridor";
+      const sourceDisplay = inc.source_name || "Official Feeds";
+
       const el = document.createElement("div");
       el.className = "incident-alert-marker-wrapper group cursor-pointer relative flex flex-col items-center select-none";
       el.style.zIndex = isCritical ? "35" : isHigh ? "30" : "25";
@@ -981,25 +1014,35 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
           <span>${iconEmoji}</span>
           <span class="text-slate-900 font-extrabold uppercase tracking-tight">${severityText}</span>
           <span class="text-slate-300 font-normal">•</span>
-          <span class="text-slate-700 font-medium max-w-[100px] truncate">${inc.road_id || inc.incident_code || typeLabel}</span>
+          <span class="text-slate-700 font-medium max-w-[100px] truncate">${roadDisplay}</span>
         </div>
 
         <!-- Rich Glassmorphic Interactive Hover Preview Card -->
-        <div class="absolute -top-36 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none scale-90 translate-y-2 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-200 z-50 p-3.5 bg-slate-900/95 backdrop-blur-md text-white rounded-xl shadow-2xl text-[11px] whitespace-normal w-68 border border-slate-700/80">
+        <div class="absolute -top-40 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none scale-90 translate-y-2 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-200 z-50 p-3.5 bg-slate-900/95 backdrop-blur-md text-white rounded-xl shadow-2xl text-[11px] whitespace-normal w-72 border border-slate-700/80">
           <div class="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-700/60">
             <div class="flex items-center gap-1.5 font-bold text-sky-300">
               <span>${iconEmoji}</span>
               <span class="font-mono text-white text-xs">${inc.incident_code || "HAZARD"}</span>
+              <span class="w-2 h-2 rounded-full ${freshnessDot}"></span>
+              <span class="text-[9px] text-slate-300 font-semibold">${freshness}</span>
             </div>
             <span class="text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wider ${severityBadge}">
               ${severity}
             </span>
           </div>
           <div class="text-[11px] font-bold text-slate-100 mt-2 line-clamp-1">${inc.title}</div>
-          <div class="text-[10px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">${inc.description || "Active hazard requiring caution or route bypass."}</div>
-          <div class="text-[10px] text-amber-300 mt-2 font-medium flex items-center justify-between">
-            <span>📍 ${inc.road_id || "Highway Corridor"}</span>
-            <span class="text-sky-300 font-bold hover:underline flex items-center gap-0.5">Triage Detour →</span>
+          <div class="text-[10px] text-slate-300 mt-1 line-clamp-2 leading-relaxed">${inc.description || "Active hazard requiring caution or route bypass."}</div>
+          <div class="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
+            <div class="flex items-center gap-1.5">
+              <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border ${trustBadgeClass}">
+                ${trustShort}
+              </span>
+              <span class="text-slate-400 font-mono">${confPct}% conf</span>
+            </div>
+            <span class="text-amber-300 font-medium">📍 ${roadDisplay}</span>
+          </div>
+          <div class="text-[9px] text-slate-400 mt-1 truncate">
+            Source: <span class="text-sky-300 font-medium">${sourceDisplay}</span>
           </div>
           <div class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45 border-r border-b border-slate-700/80"></div>
         </div>
@@ -1075,13 +1118,23 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
             status: inf.properties.status || "OPEN",
             title: inf.properties.title || "Corridor Disruption",
             description: inf.properties.description || "",
-            road_id: inf.properties.road_id || "Corridor",
+            road_id: inf.properties.affected_road_code || inf.properties.road_id || "Corridor",
+            affected_road_code: inf.properties.affected_road_code,
             district_id: inf.properties.district_id,
             lat: inf.geometry.coordinates[1],
             lng: inf.geometry.coordinates[0],
             reporter_name: inf.properties.reporter_name,
             created_at: inf.properties.created_at,
             color: inf.properties.color,
+            source_name: inf.properties.source_name,
+            source_url: inf.properties.source_url,
+            source_trust_level: inf.properties.source_trust_level,
+            source_event_id: inf.properties.source_event_id,
+            confidence_score: inf.properties.confidence_score,
+            verification_status: inf.properties.verification_status,
+            freshness_state: inf.properties.freshness_state,
+            is_live_external: inf.properties.is_live_external,
+            alternative_available: inf.properties.alternative_available,
           }));
         }
 
@@ -1389,7 +1442,53 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
         m.removeSource("alt-route-src");
       }
     }
-  }, [activePrimary, activeAlt, isMapLoaded]);
+
+    // Blocked Road Segments Layer (Striking Red Alert Highlight)
+    if (blockedRouteSegmentsGeojson && (blockedRouteSegmentsGeojson.coordinates?.length || blockedRouteSegmentsGeojson.features?.length)) {
+      if (!m.getSource("blocked-segments-src")) {
+        m.addSource("blocked-segments-src", {
+          type: "geojson",
+          data: blockedRouteSegmentsGeojson,
+        });
+        m.addLayer({
+          id: "blocked-segments-glow",
+          type: "line",
+          source: "blocked-segments-src",
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": "#ef4444",
+            "line-width": 11,
+            "line-opacity": 0.45,
+          },
+        });
+        m.addLayer({
+          id: "blocked-segments-line",
+          type: "line",
+          source: "blocked-segments-src",
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": "#dc2626",
+            "line-width": 5.5,
+            "line-dasharray": [2, 1.2],
+          },
+        });
+      } else {
+        (m.getSource("blocked-segments-src") as maplibregl.GeoJSONSource).setData(blockedRouteSegmentsGeojson);
+      }
+    } else {
+      if (m.getSource("blocked-segments-src")) {
+        if (m.getLayer("blocked-segments-line")) m.removeLayer("blocked-segments-line");
+        if (m.getLayer("blocked-segments-glow")) m.removeLayer("blocked-segments-glow");
+        m.removeSource("blocked-segments-src");
+      }
+    }
+  }, [activePrimary, activeAlt, blockedRouteSegmentsGeojson, isMapLoaded]);
 
   // Handle in-map route calculation output
   const handleInMapRoutesCalculated = (routes: any[]) => {
@@ -1823,42 +1922,94 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
 
       {/* Floating Incident Detail Drawer */}
       {selectedIncident && (
-        <div className="absolute bottom-4 right-4 z-20 p-4 rounded-2xl border border-rose-200 bg-white/95 backdrop-blur-md shadow-floating text-xs max-w-sm w-full animate-in fade-in slide-in-from-bottom-2 duration-150">
+        <div className="absolute bottom-4 right-4 z-20 p-4 rounded-2xl border border-rose-200 bg-white/95 backdrop-blur-md shadow-floating text-xs max-w-md w-full animate-in fade-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-start justify-between border-b border-slate-100 pb-2.5">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                <AlertTriangle className="w-4 h-4" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-[10px] uppercase font-bold text-rose-600">Active Road Hazard</span>
-                <h4 className="text-sm font-bold text-slate-900">
-                  {selectedIncident.title || selectedIncident.name || "Incident Detected"}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] uppercase font-bold text-rose-600 font-mono">
+                    {selectedIncident.incident_code || "HAZARD"}
+                  </span>
+                  {selectedIncident.freshness_state && (
+                    <span className="px-1.5 py-0.2 text-[9px] rounded-full font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      {selectedIncident.freshness_state}
+                    </span>
+                  )}
+                  <span className="px-1.5 py-0.2 text-[9px] rounded-full font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                    {selectedIncident.severity || "HIGH"}
+                  </span>
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 mt-0.5 leading-snug">
+                  {selectedIncident.title || selectedIncident.name || "Corridor Disruption"}
                 </h4>
               </div>
             </div>
             <button
               onClick={() => setSelectedIncident(null)}
-              className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           <div className="mt-3 space-y-2 text-slate-600">
-            <div className="flex justify-between items-center py-1 border-b border-slate-50">
-              <span className="text-slate-400">Severity:</span>
-              <span className="px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 font-bold text-[11px]">
-                {selectedIncident.severity || "HIGH"}
-              </span>
+            {/* Trust and Source Attribution Card */}
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-slate-500 font-medium">Source Attribution:</span>
+                <div className="flex items-center gap-1 font-semibold text-slate-800">
+                  {selectedIncident.source_url ? (
+                    <a
+                      href={selectedIncident.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-1"
+                    >
+                      <span>{selectedIncident.source_name || "Official Feed"}</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  ) : (
+                    <span>{selectedIncident.source_name || "Official Feeds"}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-slate-500 font-medium">Trust Classification:</span>
+                <span className="font-bold text-[10px] px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+                  {selectedIncident.source_trust_level || "LEVEL 1 - OFFICIAL"}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-slate-500 font-medium">Corroboration Confidence:</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-20 bg-slate-200 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full"
+                      style={{ width: `${Math.round((selectedIncident.confidence_score ?? 0.85) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="font-bold text-slate-800 font-mono text-[10px]">
+                    {Math.round((selectedIncident.confidence_score ?? 0.85) * 100)}%
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-slate-500 font-medium">Corridor Affected:</span>
+                <span className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {selectedIncident.affected_road_code || selectedIncident.road_id || "Highway Network"}
+                </span>
+              </div>
             </div>
 
-            <div className="flex justify-between items-center py-1 border-b border-slate-50">
-              <span className="text-slate-400">Estimated Clearance:</span>
-              <span className="font-semibold text-slate-800">{selectedIncident.estimated_clearance || "42 min"}</span>
-            </div>
-
-            <p className="text-[11px] text-slate-500 leading-relaxed py-1">
-              {selectedIncident.description || "Debris and mudslide blocking primary carriageway. Clearance crew dispatched."}
+            <p className="text-[11px] text-slate-600 leading-relaxed py-1 bg-white p-2 rounded-xl border border-slate-100">
+              {selectedIncident.description || "Active hazard requiring caution or route bypass."}
             </p>
 
             <div className="pt-2 grid grid-cols-2 gap-2">
@@ -1867,27 +2018,39 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
                   setActiveTool("route");
                   setSelectedIncident(null);
                   addToast({
-                    title: "Detour Calculator Activated",
-                    description: "Planning alternative bypass around hazard zone.",
+                    title: "Bypass Calculator Activated",
+                    description: "Planning alternative road route avoiding affected corridor.",
                     type: "info",
                   });
                 }}
                 className="py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold text-center transition-colors shadow-xs"
               >
-                Calculate Detour
+                Plan Bypass Route
               </button>
-              <button
-                onClick={() => {
-                  addToast({
-                    title: "Fleet Alert Broadcasted",
-                    description: "All vehicles on corridor notified of hazard.",
-                    type: "success",
-                  });
-                }}
-                className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold text-center transition-colors"
-              >
-                Notify Fleet
-              </button>
+              {selectedIncident.source_url ? (
+                <a
+                  href={selectedIncident.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold text-center transition-colors flex items-center justify-center gap-1"
+                >
+                  <span>Verify Feed</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              ) : (
+                <button
+                  onClick={() => {
+                    addToast({
+                      title: "Alert Broadcasted",
+                      description: "Incident details sent to regional emergency dispatch.",
+                      type: "success",
+                    });
+                  }}
+                  className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold text-center transition-colors"
+                >
+                  Broadcast Alert
+                </button>
+              )}
             </div>
           </div>
         </div>

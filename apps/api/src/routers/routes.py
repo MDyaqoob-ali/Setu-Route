@@ -23,6 +23,8 @@ from src.services.live_route_service import LiveRouteService
 from src.models import RouteRequest, RouteResult, Vehicle, Delivery, AuditLog, Road, DeliveryEvent
 from src.services.eta_engine import ETAEngine
 
+from src.services.route_incident_correlator import RouteIncidentCorrelator
+
 router = APIRouter(prefix="/routes", tags=["Routes"])
 
 
@@ -40,6 +42,7 @@ async def optimize_route(
 ) -> List[Dict[str, Any]]:
     """
     Computes priority-aware multi-route candidates across North Eastern road graph.
+    Correlates routes against real-time verified external incidents and flags blockages.
     """
     routes = await GraphRoutingEngine.calculate_routes(
         db=db,
@@ -51,6 +54,39 @@ async def optimize_route(
         cargo_priority=request.cargo_priority or "NORMAL",
         avoid_blocked=request.avoid_blocked_roads
     )
+
+    # Correlate routes with real-world incidents and detect blockages
+    for r in routes:
+        coords = r.get("waypoints", {}).get("coordinates", [])
+        correlation = await RouteIncidentCorrelator.correlate_route(
+            db=db,
+            route_coordinates=coords,
+            origin_name=request.origin_name,
+            destination_name=request.destination_name,
+            candidate_routes=routes
+        )
+        r["route_status"] = correlation["route_status"]
+        r["status_badge"] = correlation["status_badge"]
+        r["status_title"] = correlation["status_title"]
+        r["is_blocked"] = correlation["is_blocked"]
+        r["blocked_segments"] = correlation["blocked_segments"]
+        r["affecting_incidents"] = correlation["affecting_incidents"]
+        r["incident_summary"] = correlation["summary"]
+        r["alternative_recommendation"] = correlation.get("alternative_recommendation")
+
+        if correlation["is_blocked"]:
+            r["risk_score"] = max(r.get("risk_score", 20), correlation["logistics_risk_score"])
+            r["risk_level"] = "CRITICAL"
+
+    # If primary route is blocked and avoid_blocked_roads is enabled, recommend the safest alternative
+    if routes and routes[0].get("is_blocked") and request.avoid_blocked_roads and len(routes) > 1:
+        routes[0]["is_recommended"] = False
+        # Find first non-blocked candidate
+        for alt in routes[1:]:
+            if not alt.get("is_blocked"):
+                alt["is_recommended"] = True
+                alt["safety_rationale"] = f"Recommended Detour: Bypasses active blockage on primary corridor."
+                break
 
     # Persist request in database
     req_record = RouteRequest(
