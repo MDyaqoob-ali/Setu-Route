@@ -87,7 +87,7 @@ export const Header: React.FC = () => {
       <header
         className={cn(
           "fixed top-0 right-0 z-30 h-16 border-b border-slate-200/80 bg-white/95 backdrop-blur-md transition-all duration-300 flex items-center justify-between px-4 lg:px-8 shadow-xs",
-          sidebarOpen ? "left-64" : "left-16"
+          sidebarOpen ? "left-0 md:left-64" : "left-0 md:left-16"
         )}
       >
         {/* Left: Mobile toggle & Breadcrumb / Page Title */}

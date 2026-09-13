@@ -15,31 +15,30 @@ export const RootLayoutClient: React.FC<{ children: React.ReactNode }> = ({ chil
   useRealtimeTelemetry();
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F5F7FA] text-foreground">
+    <div className="min-h-screen flex bg-[#F5F7FA] text-foreground">
       <Sidebar />
-      <Header />
 
-      {/* Real-time ticker dynamically aligned with sidebar */}
+      {/* Main Layout Column dynamically offset by sidebar width on desktop */}
       <div
         className={cn(
-          "pt-16 transition-all duration-300",
+          "flex-1 flex flex-col min-w-0 transition-all duration-300",
           sidebarOpen ? "md:pl-64" : "md:pl-16"
         )}
       >
-        <RealtimeAlertTicker />
-      </div>
+        <Header />
 
-      {/* Main Content Area dynamically synced with sidebar */}
-      <main
-        className={cn(
-          "flex-1 p-4 sm:p-6 lg:p-8 transition-all duration-300 max-w-[1680px] w-full mx-auto",
-          sidebarOpen ? "md:pl-64" : "md:pl-16"
-        )}
-      >
-        <GlobalErrorBoundary>
-          {children}
-        </GlobalErrorBoundary>
-      </main>
+        {/* Real-time ticker positioned cleanly below fixed header */}
+        <div className="pt-16">
+          <RealtimeAlertTicker />
+        </div>
+
+        {/* Main Content Area safely centered within available content width */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1680px] mx-auto min-w-0">
+          <GlobalErrorBoundary>
+            {children}
+          </GlobalErrorBoundary>
+        </main>
+      </div>
     </div>
   );
 };
