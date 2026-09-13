@@ -178,7 +178,7 @@ export default function RoutesPage() {
         }),
       });
 
-      if (routes && routes.length > 0) {
+      if (routes && routes.length > 0 && routes[0]?.waypoints?.coordinates?.length >= 2) {
         const prim = routes[0];
         setLiveData({
           primary_route: {
@@ -214,11 +214,17 @@ export default function RoutesPage() {
           },
           audit_trail: [],
         });
+      } else {
+        addToast({
+          title: "No Drivable Route",
+          description: "No drivable road route could be found between these locations.",
+          type: "error",
+        });
       }
     } catch (err) {
       addToast({
-        title: "Optimization Error",
-        description: "Could not solve graph topology for the selected nodes.",
+        title: "No Drivable Route",
+        description: "No drivable road route could be found between these locations.",
         type: "error",
       });
     }
@@ -394,7 +400,7 @@ export default function RoutesPage() {
               {isStreaming ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  <span>Connecting...</span>
+                  <span>Calculating road route...</span>
                 </>
               ) : (
                 <>

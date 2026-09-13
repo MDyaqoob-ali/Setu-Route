@@ -1,21 +1,69 @@
 """
-Road Geometry Snapping Service for NE-ROUTE.
-Snaps corridor and route waypoints directly to the physical road network on OpenStreetMap using OSRM,
-applies iterative Ramer-Douglas-Peucker (RDP) curve simplification, and provides robust local fallbacks.
+Production-Grade Road Geometry & Network Routing Service for Northeast India.
+Queries OpenStreetMap road routing engines (FOSSGIS OSM & Project-OSRM),
+stitches multi-waypoint road segments, applies precision curve simplification,
+and persists an in-memory & on-disk cache for lightning-fast performance.
 """
 
+import os
+import json
 import math
 import logging
 import asyncio
 from typing import List, Tuple, Dict, Any, Optional
 import httpx
 
-logger = logging.getLogger("ne_route.road_geometry")
+logger = logging.getLogger("neroute.road_geometry")
 
-# In-Memory Cache for snapped road geometries: key -> (coordinates_list, distance_km)
+# Routing engine endpoints (prioritize HTTPS OSM mirrors with high uptime)
+ROUTING_ENDPOINTS = [
+    "https://routing.openstreetmap.de/routed-car/route/v1/driving",
+    "https://router.project-osrm.org/route/v1/driving",
+]
+
+DEFAULT_HEADERS = {
+    "User-Agent": "NE-ROUTE-Geospatial-Routing/1.0 (MDoNER-SIH2026; contact@neroute.gov.in)",
+    "Accept": "application/json",
+}
+
+# Cache file path
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+CACHE_DIR = os.path.join(BASE_DIR, "data")
+CACHE_FILE = os.path.join(CACHE_DIR, "road_geometry_cache.json")
+
+# In-Memory Cache: cache_key -> (coordinates_list, distance_km)
 _ROAD_GEOMETRY_CACHE: Dict[str, Tuple[List[List[float]], float]] = {}
 
-OSRM_BASE_URL = "http://router.project-osrm.org/route/v1/driving"
+
+def _load_disk_cache():
+    global _ROAD_GEOMETRY_CACHE
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for k, v in data.items():
+                    if isinstance(v, list) and len(v) == 2:
+                        _ROAD_GEOMETRY_CACHE[k] = (v[0], float(v[1]))
+            logger.info(f"Loaded {len(_ROAD_GEOMETRY_CACHE)} cached road geometries from disk.")
+    except Exception as e:
+        logger.warning(f"Could not load disk cache: {e}")
+
+
+def _save_disk_cache():
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        # Limit disk cache to latest 2000 routes
+        cache_data = {}
+        for k, v in list(_ROAD_GEOMETRY_CACHE.items())[-2000:]:
+            cache_data[k] = [v[0], v[1]]
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f)
+    except Exception as e:
+        logger.warning(f"Could not save disk cache: {e}")
+
+
+# Initialize cache on module load
+_load_disk_cache()
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -33,10 +81,11 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return r * c
 
 
-def rdp_simplify(points: List[List[float]], epsilon: float = 0.00008) -> List[List[float]]:
+def rdp_simplify(points: List[List[float]], epsilon: float = 0.00004) -> List[List[float]]:
     """
     Iterative Ramer-Douglas-Peucker (RDP) algorithm.
-    Reduces polyline vertex density while preserving sharp mountain highway switchbacks.
+    Preserves all sharp mountain switchbacks, bends, and road curvature
+    while discarding redundant collinear points.
     Input/Output points: [[lng, lat], ...]
     """
     if len(points) <= 2:
@@ -79,50 +128,41 @@ def rdp_simplify(points: List[List[float]], epsilon: float = 0.00008) -> List[Li
     return [points[i] for i in range(len(points)) if keep[i]]
 
 
-def catmull_rom_spline(
-    control_points: List[List[float]], points_per_segment: int = 15
-) -> List[List[float]]:
-    """
-    Catmull-Rom spline fallback to generate smooth highway-like curve transitions
-    when network services are unreachable or offline.
-    """
-    if len(control_points) < 2:
-        return control_points
-
-    # Duplicate start and end to form boundary tangents
-    pts = [control_points[0]] + control_points + [control_points[-1]]
-    result: List[List[float]] = []
-
-    for i in range(len(pts) - 3):
-        p0, p1, p2, p3 = pts[i], pts[i + 1], pts[i + 2], pts[i + 3]
-        for t_idx in range(points_per_segment):
-            t = t_idx / float(points_per_segment)
-            t2 = t * t
-            t3 = t2 * t
-
-            # Basis matrix for standard uniform Catmull-Rom
-            x = 0.5 * (
-                (2.0 * p1[0])
-                + (-p0[0] + p2[0]) * t
-                + (2.0 * p0[0] - 5.0 * p1[0] + 4.0 * p2[0] - p3[0]) * t2
-                + (-p0[0] + 3.0 * p1[0] - 3.0 * p2[0] + p3[0]) * t3
-            )
-            y = 0.5 * (
-                (2.0 * p1[1])
-                + (-p0[1] + p2[1]) * t
-                + (2.0 * p0[1] - 5.0 * p1[1] + 4.0 * p2[1] - p3[1]) * t2
-                + (-p0[1] + 3.0 * p1[1] - 3.0 * p2[1] + p3[1]) * t3
-            )
-            result.append([round(x, 6), round(y, 6)])
-
-    result.append(control_points[-1])
-    return result
-
-
 class RoadGeometryService:
     @staticmethod
     def _make_cache_key(points: List[Tuple[float, float]]) -> str:
-        return ";".join(f"{round(p[0], 4)},{round(p[1], 4)}" for p in points)
+        return ";".join(f"{round(p[0], 5)},{round(p[1], 5)}" for p in points)
+
+    @classmethod
+    async def _query_osrm_single_leg(
+        cls,
+        p1: Tuple[float, float],
+        p2: Tuple[float, float]
+    ) -> Optional[Tuple[List[List[float]], float]]:
+        """
+        Queries OSRM / OpenStreetMap routing engine for a single leg between two (lat, lng) points.
+        Returns (coordinates, distance_km) with actual road geometry.
+        """
+        # Coordinate order for OSRM URL: lon,lat;lon,lat
+        coords_str = f"{round(p1[1], 5)},{round(p1[0], 5)};{round(p2[1], 5)},{round(p2[0], 5)}"
+        
+        async with httpx.AsyncClient(timeout=8.0, headers=DEFAULT_HEADERS, follow_redirects=True) as client:
+            for base_url in ROUTING_ENDPOINTS:
+                url = f"{base_url}/{coords_str}?overview=full&geometries=geojson"
+                try:
+                    res = await client.get(url)
+                    if res.status_code == 200:
+                        data = res.json()
+                        if data.get("code") == "Ok" and data.get("routes"):
+                            route = data["routes"][0]
+                            coords = route["geometry"]["coordinates"]
+                            dist_km = round(route.get("distance", 0.0) / 1000.0, 2)
+                            if coords and len(coords) >= 2:
+                                return coords, dist_km
+                except Exception as e:
+                    logger.debug(f"Routing request to {base_url} failed: {e}")
+                    continue
+        return None
 
     @classmethod
     async def get_road_aligned_geometry(
@@ -131,10 +171,10 @@ class RoadGeometryService:
         input_format: str = "lat_lng"
     ) -> Tuple[List[List[float]], float]:
         """
-        Takes a list of waypoint points and returns:
-          (coordinates, total_distance_km)
-        where coordinates is in GeoJSON LineString format: [[lng, lat], [lng, lat], ...]
-        snapped to actual physical roads on OpenStreetMap.
+        Takes a sequence of waypoints and returns:
+          (coordinates, total_road_distance_km)
+        where coordinates is a dense GeoJSON LineString format [[lng, lat], ...]
+        that strictly follows the actual physical road network on OpenStreetMap.
         """
         if not points or len(points) < 2:
             return ([], 0.0)
@@ -147,59 +187,74 @@ class RoadGeometryService:
             else:
                 lat_lng_points.append((p[1], p[0]))
 
-        cache_key = cls._make_cache_key(lat_lng_points)
+        # Deduplicate consecutive points
+        dedup_pts = [lat_lng_points[0]]
+        for p in lat_lng_points[1:]:
+            if abs(p[0] - dedup_pts[-1][0]) > 0.0003 or abs(p[1] - dedup_pts[-1][1]) > 0.0003:
+                dedup_pts.append(p)
+
+        if len(dedup_pts) < 2:
+            return ([[dedup_pts[0][1], dedup_pts[0][0]]], 0.0)
+
+        cache_key = cls._make_cache_key(dedup_pts)
         if cache_key in _ROAD_GEOMETRY_CACHE:
             return _ROAD_GEOMETRY_CACHE[cache_key]
 
-        # Calculate nominal straight-line distance sum as baseline fallback
-        fallback_distance = 0.0
-        for i in range(len(lat_lng_points) - 1):
-            fallback_distance += haversine_km(
-                lat_lng_points[i][0], lat_lng_points[i][1],
-                lat_lng_points[i + 1][0], lat_lng_points[i + 1][1]
-            )
+        # First, try routing all points together if count <= 12
+        if len(dedup_pts) <= 12:
+            coords_param = ";".join(f"{round(p[1], 5)},{round(p[0], 5)}" for p in dedup_pts)
+            async with httpx.AsyncClient(timeout=10.0, headers=DEFAULT_HEADERS, follow_redirects=True) as client:
+                for base_url in ROUTING_ENDPOINTS:
+                    url = f"{base_url}/{coords_param}?overview=full&geometries=geojson"
+                    try:
+                        res = await client.get(url)
+                        if res.status_code == 200:
+                            data = res.json()
+                            if data.get("code") == "Ok" and data.get("routes"):
+                                route = data["routes"][0]
+                                raw_coords = route["geometry"]["coordinates"]
+                                dist_km = round(route.get("distance", 0.0) / 1000.0, 1)
+                                if raw_coords and len(raw_coords) >= 2:
+                                    simplified = rdp_simplify(raw_coords, epsilon=0.00004)
+                                    result = (simplified, dist_km)
+                                    _ROAD_GEOMETRY_CACHE[cache_key] = result
+                                    _save_disk_cache()
+                                    return result
+                    except Exception as e:
+                        logger.debug(f"Direct multi-point route failed on {base_url}: {e}")
 
-        # Build GeoJSON control points [[lng, lat], ...]
-        raw_control_pts = [[p[1], p[0]] for p in lat_lng_points]
+        # If direct multi-point route failed or points > 12: query segment by segment and stitch!
+        stitched_coords: List[List[float]] = []
+        total_dist_km = 0.0
+        success_legs = 0
 
-        # Try OSRM routing machine
-        try:
-            # Format coordinates for OSRM: lon,lat;lon,lat;...
-            coords_param = ";".join(f"{round(p[1], 5)},{round(p[0], 5)}" for p in lat_lng_points)
-            url = f"{OSRM_BASE_URL}/{coords_param}?overview=full&geometries=geojson"
+        for i in range(len(dedup_pts) - 1):
+            p_start = dedup_pts[i]
+            p_end = dedup_pts[i + 1]
+            leg_res = await cls._query_osrm_single_leg(p_start, p_end)
+            if leg_res:
+                leg_coords, leg_dist = leg_res
+                success_legs += 1
+                total_dist_km += leg_dist
+                if not stitched_coords:
+                    stitched_coords.extend(leg_coords)
+                else:
+                    # Avoid duplicate vertex at joint
+                    stitched_coords.extend(leg_coords[1:])
+            else:
+                logger.warning(f"Leg {p_start} -> {p_end} could not be routed by OSRM.")
 
-            async with httpx.AsyncClient(timeout=4.0) as client:
-                res = await client.get(url)
+        if stitched_coords and len(stitched_coords) >= 2:
+            simplified = rdp_simplify(stitched_coords, epsilon=0.00004)
+            result = (simplified, round(total_dist_km, 1))
+            _ROAD_GEOMETRY_CACHE[cache_key] = result
+            _save_disk_cache()
+            return result
 
-            if res.status_code == 200:
-                data = res.json()
-                if data.get("code") == "Ok" and data.get("routes"):
-                    primary_route = data["routes"][0]
-                    raw_coords = primary_route["geometry"]["coordinates"]
-                    dist_km = round(primary_route.get("distance", fallback_distance * 1000.0) / 1000.0, 1)
-
-                    # Optimize vertex density to preserve curves while maintaining lightweight payload
-                    simplified = rdp_simplify(raw_coords, epsilon=0.00008)
-
-                    # Safety check: ensure start & end points match exactly
-                    if simplified:
-                        simplified[0] = raw_control_pts[0]
-                        simplified[-1] = raw_control_pts[-1]
-
-                    result = (simplified, dist_km)
-                    _ROAD_GEOMETRY_CACHE[cache_key] = result
-                    return result
-        except Exception as err:
-            logger.warning(f"OSRM snapping failed, using smooth Catmull-Rom spline fallback: {err}")
-
-        # Fallback: Generate high-resolution Catmull-Rom splined road curvature
-        splined_pts = catmull_rom_spline(raw_control_pts, points_per_segment=12)
-        # Approximate real road winding factor (roads in NER are ~1.28x to 1.35x longer than straight lines)
-        calibrated_distance = round(fallback_distance * 1.25, 1)
-
-        result = (splined_pts, calibrated_distance)
-        _ROAD_GEOMETRY_CACHE[cache_key] = result
-        return result
+        # If all routing engines failed, return empty geometry with 0.0 distance
+        # DO NOT return a straight line!
+        logger.error(f"Failed to find road network route for points: {dedup_pts}")
+        return ([], 0.0)
 
     @classmethod
     async def snap_corridor(
@@ -207,7 +262,7 @@ class RoadGeometryService:
         coordinates: List[List[float]]
     ) -> Tuple[List[List[float]], float]:
         """
-        Convenience wrapper accepting GeoJSON [[lng, lat], ...] coordinates.
+        Snaps a series of GeoJSON [[lng, lat], ...] road coordinates to the physical road network.
         """
         pts = [(c[1], c[0]) for c in coordinates]
         return await cls.get_road_aligned_geometry(pts, input_format="lat_lng")

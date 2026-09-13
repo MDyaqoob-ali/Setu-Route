@@ -11,17 +11,26 @@ Provides:
 - Data source freshness & connection health monitoring
 """
 
+import os
+import sys
 import asyncio
 import json
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional, AsyncGenerator
+
+_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.models import Road, Incident, WeatherObservation, District, AuditLog
+from src.core.database import AsyncSessionLocal
 from src.services.weather_provider import weather_provider
 from src.services.road_geometry_service import RoadGeometryService
+from src.services.graph_routing_engine import GraphRoutingEngine
 from ml.predictor import risk_predictor
 
 
@@ -398,29 +407,51 @@ class LiveRouteService:
         await asyncio.sleep(0.03)
 
         # 4. Progressive Phase 4: Full Multi-Criteria Route Optimization (100%)
-        dist_approx = round(((dest_lat - origin_lat)**2 + (dest_lng - origin_lng)**2)**0.5 * 111.0 * 1.35, 1)
-        dur_approx = round((dist_approx / 42.0) * 60, 0)
+        candidate_routes = []
+        try:
+            async with AsyncSessionLocal() as db:
+                candidate_routes = await GraphRoutingEngine.calculate_routes(
+                    db=db,
+                    origin_lat=origin_lat,
+                    origin_lng=origin_lng,
+                    dest_lat=dest_lat,
+                    dest_lng=dest_lng,
+                    vehicle_type=vehicle_type,
+                    cargo_priority=cargo_priority,
+                    avoid_blocked=False
+                )
+        except Exception as err:
+            logger.warning(f"Graph routing failed in live stream: {err}")
 
-        # Real road snapping for primary route
-        primary_pts = [(origin_lat, origin_lng), (dest_lat, dest_lng)]
-        road_coords, road_dist = await RoadGeometryService.get_road_aligned_geometry(primary_pts)
-        if road_coords and len(road_coords) >= 2:
-            waypoints_baseline = road_coords
-            if road_dist > 0:
-                dist_approx = road_dist
-                dur_approx = round((dist_approx / 42.0) * 60, 0)
-        else:
-            waypoints_baseline = [
-                [origin_lng, origin_lat],
-                [origin_lng + (dest_lng - origin_lng) * 0.25, origin_lat + (dest_lat - origin_lat) * 0.25],
-                [origin_lng + (dest_lng - origin_lng) * 0.5, origin_lat + (dest_lat - origin_lat) * 0.5],
-                [origin_lng + (dest_lng - origin_lng) * 0.75, origin_lat + (dest_lat - origin_lat) * 0.75],
-                [dest_lng, dest_lat]
-            ]
+        # Fallback to direct road geometry if graph solver had no path
+        if not candidate_routes:
+            coords, dist_km = await RoadGeometryService.get_road_aligned_geometry([(origin_lat, origin_lng), (dest_lat, dest_lng)])
+            if coords and len(coords) >= 2:
+                candidate_routes = [{
+                    "route_name": f"Direct Highway ({origin_name.split(' ')[0]} - {dest_name.split(' ')[0]})",
+                    "distance_km": dist_km,
+                    "estimated_duration_minutes": max(15, int((dist_km / 45.0) * 60)),
+                    "risk_score": 20.0,
+                    "risk_level": "LOW",
+                    "waypoints": {"type": "LineString", "coordinates": coords},
+                    "bottlenecks": [],
+                    "is_recommended": True,
+                    "safety_rationale": "Direct road route following verified OpenStreetMap highway network."
+                }]
+
+        if not candidate_routes or not candidate_routes[0].get("waypoints", {}).get("coordinates"):
+            # If no drivable road route could be calculated, emit error state
+            yield f"data: {json.dumps({'error': 'No drivable road route could be found between these locations.'})}\n\n"
+            return
+
+        prim_cand = candidate_routes[0]
+        waypoints_baseline = prim_cand["waypoints"]["coordinates"]
+        dist_approx = prim_cand["distance_km"]
+        dur_approx = prim_cand["estimated_duration_minutes"]
 
         sim_override = _SIMULATION_OVERRIDES.get(session_id)
         segments = LiveRouteService.evaluate_corridor_segments(
-            route_name="Primary Strategic Arterial",
+            route_name=prim_cand.get("route_name", "Primary Strategic Arterial"),
             waypoints=waypoints_baseline,
             distance_km=dist_approx,
             duration_mins=dur_approx,
@@ -433,7 +464,7 @@ class LiveRouteService:
         max_flood = max(s["flood_risk_pct"] for s in segments)
 
         # Layered Risk Math
-        base_risk = 18
+        base_risk = int(prim_cand.get("risk_score", 18))
         if sim_override:
             base_risk = 74 if sim_override.get("event_type") == "LANDSLIDE" else 48
 
@@ -449,10 +480,9 @@ class LiveRouteService:
 
         journey_rainfall = LiveRouteService.generate_journey_rainfall_timeline(dur_approx, sim_override)
 
-        # Primary and Alternative Route Dossiers
         primary_route = {
             "route_id": f"rt-prim-{uuid.uuid4().hex[:6]}",
-            "name": f"Primary Arterial via {origin_name.split(' ')[0]} - {dest_name.split(' ')[0]} Corridor",
+            "name": prim_cand.get("route_name", f"Primary Arterial via {origin_name.split(' ')[0]} - {dest_name.split(' ')[0]} Corridor"),
             "distance_km": dist_approx,
             "estimated_duration_minutes": dur_approx,
             "eta_formatted": f"{int(dur_approx // 60)}h {int(dur_approx % 60)}m",
@@ -465,30 +495,34 @@ class LiveRouteService:
             "verdict": verdict
         }
 
-        # Alternative Bypass Route - snapped along detour corridor
-        alt_dist = round(dist_approx * 1.14, 1)
-        alt_dur = round(dur_approx * 1.08, 0)
-        alt_risk = 22
-        alt_safety = 78
-        
-        mid_idx = len(waypoints_baseline) // 2
-        mid_pt = waypoints_baseline[mid_idx]
-        alt_pts = [(origin_lat, origin_lng), (mid_pt[1] + 0.12, mid_pt[0] - 0.15), (dest_lat, dest_lng)]
-        alt_coords, alt_road_km = await RoadGeometryService.get_road_aligned_geometry(alt_pts)
-        if alt_coords and len(alt_coords) >= 2:
-            alt_waypoints = alt_coords
-            if alt_road_km > 0:
-                alt_dist = alt_road_km
-                alt_dur = round((alt_dist / 38.0) * 60, 0)
+        # Alternative Route Candidate
+        if len(candidate_routes) > 1:
+            alt_cand = candidate_routes[1]
+            alt_waypoints = alt_cand["waypoints"]["coordinates"]
+            alt_dist = alt_cand["distance_km"]
+            alt_dur = alt_cand["estimated_duration_minutes"]
+            alt_name = alt_cand.get("route_name", "Alternative Detour Bypass")
+            alt_risk = int(alt_cand.get("risk_score", 22))
         else:
-            alt_waypoints = [
-                [origin_lng, origin_lat],
-                [origin_lng + (dest_lng - origin_lng) * 0.2, origin_lat + (dest_lat - origin_lat) * 0.35],
-                [origin_lng + (dest_lng - origin_lng) * 0.55, origin_lat + (dest_lat - origin_lat) * 0.6],
-                [dest_lng, dest_lat]
-            ]
+            # Query secondary detour through road network
+            mid_idx = len(waypoints_baseline) // 2
+            mid_pt = waypoints_baseline[mid_idx]
+            alt_pts = [(origin_lat, origin_lng), (mid_pt[1] + 0.12, mid_pt[0] - 0.15), (dest_lat, dest_lng)]
+            alt_coords, alt_road_km = await RoadGeometryService.get_road_aligned_geometry(alt_pts)
+            if alt_coords and len(alt_coords) >= 2:
+                alt_waypoints = alt_coords
+                alt_dist = alt_road_km
+                alt_dur = max(15, round((alt_dist / 38.0) * 60, 0))
+            else:
+                alt_waypoints = waypoints_baseline
+                alt_dist = round(dist_approx * 1.12, 1)
+                alt_dur = round(dur_approx * 1.15, 0)
+            alt_name = "Alternative Mountain Bypass"
+            alt_risk = 22
+
+        alt_safety = max(10, 100 - alt_risk)
         alt_segments = LiveRouteService.evaluate_corridor_segments(
-            route_name="Alternative Low-Risk Detour",
+            route_name=alt_name,
             waypoints=alt_waypoints,
             distance_km=alt_dist,
             duration_mins=alt_dur,
@@ -497,7 +531,7 @@ class LiveRouteService:
 
         alternative_route = {
             "route_id": f"rt-alt-{uuid.uuid4().hex[:6]}",
-            "name": f"Alternative Valley Detour Bypass",
+            "name": alt_name,
             "distance_km": alt_dist,
             "estimated_duration_minutes": alt_dur,
             "eta_formatted": f"{int(alt_dur // 60)}h {int(alt_dur % 60)}m",

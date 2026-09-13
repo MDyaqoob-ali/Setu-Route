@@ -610,6 +610,7 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
   const truckMarkersRef = useRef<maplibregl.Marker[]>([]);
   const storageMarkersRef = useRef<maplibregl.Marker[]>([]);
   const incidentMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const routeMarkersRef = useRef<maplibregl.Marker[]>([]);
   const roadPopupRef = useRef<maplibregl.Popup | null>(null);
 
   // Tools & Modals state
@@ -1265,34 +1266,90 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
     if (!map.current || !isMapLoaded) return;
     const m = map.current;
 
+    // Clean up previous route markers
+    routeMarkersRef.current.forEach((marker) => marker.remove());
+    routeMarkersRef.current = [];
+
     // Primary Route
-    if (activePrimary) {
+    if (activePrimary && activePrimary.coordinates && activePrimary.coordinates.length >= 2) {
       if (!m.getSource("primary-route-src")) {
         m.addSource("primary-route-src", {
           type: "geojson",
           data: activePrimary,
         });
+        // Casing/glow for visibility over dark/light tiles
         m.addLayer({
           id: "primary-route-glow",
           type: "line",
           source: "primary-route-src",
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
           paint: {
-            "line-color": "#2563eb",
-            "line-width": 12,
-            "line-opacity": 0.25,
+            "line-color": "#1d4ed8",
+            "line-width": 9,
+            "line-opacity": 0.4,
           },
         });
         m.addLayer({
           id: "primary-route-line",
           type: "line",
           source: "primary-route-src",
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
           paint: {
             "line-color": "#2563eb",
-            "line-width": 4.5,
+            "line-width": 5,
           },
         });
       } else {
         (m.getSource("primary-route-src") as maplibregl.GeoJSONSource).setData(activePrimary);
+      }
+
+      // Add Start (Origin) and End (Destination) Markers
+      const coords = activePrimary.coordinates;
+      const startCoord = coords[0] as [number, number];
+      const endCoord = coords[coords.length - 1] as [number, number];
+
+      const startEl = document.createElement("div");
+      startEl.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-xl border-2 border-white ring-2 ring-emerald-600/30 z-20 pointer-events-none select-none";
+      startEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span><span>ORIGIN</span>`;
+      const startMarker = new maplibregl.Marker({ element: startEl, anchor: "bottom" })
+        .setLngLat(startCoord)
+        .addTo(m);
+      routeMarkersRef.current.push(startMarker);
+
+      const endEl = document.createElement("div");
+      endEl.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-600 text-white text-[10px] font-bold shadow-xl border-2 border-white ring-2 ring-rose-600/30 z-20 pointer-events-none select-none";
+      endEl.innerHTML = `<span>DESTINATION</span>`;
+      const endMarker = new maplibregl.Marker({ element: endEl, anchor: "bottom" })
+        .setLngLat(endCoord)
+        .addTo(m);
+      routeMarkersRef.current.push(endMarker);
+
+      // Fit map bounds to encompass the complete road route with comfortable padding
+      try {
+        const bounds = new maplibregl.LngLatBounds();
+        coords.forEach((coord: [number, number]) => {
+          if (Array.isArray(coord) && coord.length >= 2 && !isNaN(coord[0]) && !isNaN(coord[1])) {
+            bounds.extend(coord as [number, number]);
+          }
+        });
+        if (activeAlt && activeAlt.coordinates) {
+          activeAlt.coordinates.forEach((coord: [number, number]) => {
+            if (Array.isArray(coord) && coord.length >= 2 && !isNaN(coord[0]) && !isNaN(coord[1])) {
+              bounds.extend(coord as [number, number]);
+            }
+          });
+        }
+        if (!bounds.isEmpty()) {
+          m.fitBounds(bounds, { padding: 75, maxZoom: 13, duration: 1200 });
+        }
+      } catch (err) {
+        console.warn("Could not fit route bounds:", err);
       }
     } else {
       if (m.getSource("primary-route-src")) {
@@ -1303,7 +1360,7 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
     }
 
     // Alternate Route
-    if (activeAlt) {
+    if (activeAlt && activeAlt.coordinates && activeAlt.coordinates.length >= 2) {
       if (!m.getSource("alt-route-src")) {
         m.addSource("alt-route-src", {
           type: "geojson",
@@ -1313,9 +1370,13 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
           id: "alt-route-line",
           type: "line",
           source: "alt-route-src",
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
           paint: {
             "line-color": "#f59e0b",
-            "line-width": 3.8,
+            "line-width": 4.2,
             "line-dasharray": [3, 2],
           },
         });
@@ -1342,16 +1403,6 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
       } else {
         setInMapAltRoute(null);
       }
-
-      if (primary.waypoints?.coordinates?.length) {
-        const coords = primary.waypoints.coordinates;
-        const midIdx = Math.floor(coords.length / 2);
-        map.current?.flyTo({
-          center: coords[midIdx],
-          zoom: 7.8,
-          essential: true,
-        });
-      }
     }
   };
 
@@ -1359,6 +1410,8 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
     setInMapPrimaryRoute(null);
     setInMapAltRoute(null);
     setActiveRouteInfo(null);
+    routeMarkersRef.current.forEach((m) => m.remove());
+    routeMarkersRef.current = [];
   };
 
   // Toggle Layer Visibility

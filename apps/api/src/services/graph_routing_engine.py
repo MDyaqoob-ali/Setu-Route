@@ -8,6 +8,13 @@ import math
 import heapq
 import uuid
 from typing import Dict, List, Any, Tuple, Optional
+import os
+import sys
+
+_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from src.models import Road, Incident

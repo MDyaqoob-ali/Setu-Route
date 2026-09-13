@@ -100,20 +100,29 @@ export const MapRoutePlannerDrawer: React.FC<MapRoutePlannerDrawerProps> = ({
         }),
       });
 
+      if (!data || data.length === 0 || !data[0]?.waypoints?.coordinates || data[0].waypoints.coordinates.length < 2) {
+        addToast({
+          title: "No Drivable Route",
+          description: "No drivable road route could be found between these locations.",
+          type: "error",
+        });
+        return;
+      }
+
       setCandidateRoutes(data);
       setSelectedIdx(0);
       onRoutesCalculated(data);
 
       addToast({
-        title: "Route Optimized on Map",
-        description: `Generated ${data.length} candidate paths. Displaying primary path.`,
+        title: "Road Route Calculated",
+        description: `Generated ${data.length} candidate road paths via actual highway network.`,
         type: "success",
       });
     } catch (e) {
       console.error(e);
       addToast({
-        title: "Routing Computation Error",
-        description: "Failed to optimize route over graph network.",
+        title: "No Drivable Route",
+        description: "No drivable road route could be found between these locations.",
         type: "error",
       });
     } finally {
@@ -258,7 +267,7 @@ export const MapRoutePlannerDrawer: React.FC<MapRoutePlannerDrawerProps> = ({
           className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-xs transition-all disabled:opacity-50"
         >
           <Zap className="w-3.5 h-3.5 fill-current text-amber-300" />
-          <span>{isLoading ? "Calculating..." : "Calculate Route on Map"}</span>
+          <span>{isLoading ? "Calculating road route..." : "Calculate Route on Map"}</span>
         </button>
 
         {candidateRoutes.length > 0 && (
