@@ -173,12 +173,14 @@ export default function LiveMapPage() {
             className="w-full h-full"
             showLayerController={true}
             showToolbox={true}
+            showFilterToolbar={true}
+            showLegend={true}
             onSelectCorridor={(code) => setSelectedCorridorCode(code)}
           />
 
           {/* Real-Time Operational Threat HUD Badge on Map */}
           {alertSummary?.latest_threat && (
-            <div className="absolute top-4 left-4 z-20 max-w-sm w-full bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-rose-300 shadow-floating text-xs space-y-2 animate-in fade-in duration-200">
+            <div className="absolute top-18 left-4 z-20 max-w-sm w-full bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-rose-300 shadow-floating text-xs space-y-2 animate-in fade-in duration-200">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="relative flex h-2.5 w-2.5 shrink-0">

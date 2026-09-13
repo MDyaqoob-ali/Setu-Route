@@ -32,6 +32,11 @@ import {
   Warehouse,
   Building2,
   Thermometer,
+  Filter,
+  SlidersHorizontal,
+  ChevronDown,
+  AlertOctagon,
+  Info,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -45,6 +50,32 @@ import { MapWeatherRadarOverlay } from "./MapWeatherRadarOverlay";
 import { TruckDetailsModal, TruckData } from "@/components/vehicles/TruckDetailsModal";
 import { API_BASE_URL } from "@/lib/api-client";
 import { StorageDetailsModal, StorageUnitData } from "@/components/storage/StorageDetailsModal";
+import {
+  groupNearbyIncidents,
+  generateSpiderfyLayout,
+  SpiderfiedNode,
+  SpiderfyClusterResult,
+} from "./clustering/spiderfyEngine";
+import {
+  getIncidentVisualConfig,
+  createClusterBadgeMarkup,
+  IncidentVisualConfig,
+} from "./icons/IncidentMapIcons";
+
+export interface CandidateRouteItem {
+  id?: string;
+  name: string;
+  waypoints?: any;
+  coordinates?: [number, number][];
+  distance_km?: number;
+  eta_formatted?: string;
+  logistics_risk_score?: number;
+  safety_score?: number;
+  is_recommended?: boolean;
+  is_blocked?: boolean;
+  color?: string;
+  segments?: any[];
+}
 
 interface MapLibreViewProps {
   initialCenter?: [number, number]; // [lng, lat]
@@ -52,11 +83,16 @@ interface MapLibreViewProps {
   highlightRouteGeojson?: any;
   alternateRouteGeojson?: any;
   blockedRouteSegmentsGeojson?: any;
+  candidateRoutes?: CandidateRouteItem[];
+  activeRouteIndex?: number;
+  onSelectRoute?: (index: number) => void;
   onFeatureClick?: (feature: any) => void;
   onSelectCorridor?: (corridorCode: string) => void;
   className?: string;
   showLayerController?: boolean;
   showToolbox?: boolean;
+  showFilterToolbar?: boolean;
+  showLegend?: boolean;
 }
 
 const BASEMAP_STYLES = {
@@ -610,11 +646,16 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
   highlightRouteGeojson,
   alternateRouteGeojson,
   blockedRouteSegmentsGeojson,
+  candidateRoutes,
+  activeRouteIndex = 0,
+  onSelectRoute,
   onFeatureClick,
   onSelectCorridor,
   className,
   showLayerController = true,
   showToolbox = true,
+  showFilterToolbar = true,
+  showLegend = true,
 }) => {
   const { addToast } = useToast();
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -622,8 +663,14 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
   const truckMarkersRef = useRef<maplibregl.Marker[]>([]);
   const storageMarkersRef = useRef<maplibregl.Marker[]>([]);
   const incidentMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const clusterMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const spiderfyCollapseMarkerRef = useRef<maplibregl.Marker | null>(null);
   const routeMarkersRef = useRef<maplibregl.Marker[]>([]);
   const roadPopupRef = useRef<maplibregl.Popup | null>(null);
+  const routeTooltipPopupRef = useRef<maplibregl.Popup | null>(null);
+  const rawIncidentsRef = useRef<IncidentMapData[]>(DEFAULT_INCIDENTS);
+  const activeSpiderfyGroupRef = useRef<{ anchorLngLat: [number, number]; items: IncidentMapData[] } | null>(null);
+  const reclusterDebounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Tools & Modals state
   const [activeTool, setActiveTool] = useState<"route" | "fleet" | "weather" | "simulator" | null>(null);
@@ -642,6 +689,15 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
   const [inMapAltRoute, setInMapAltRoute] = useState<any>(null);
   const [activeRouteInfo, setActiveRouteInfo] = useState<any>(null);
 
+  // Incident Filtering & Interactivity State
+  const [incidentTypeFilter, setIncidentTypeFilter] = useState<string>("ALL");
+  const [incidentSeverityFilter, setIncidentSeverityFilter] = useState<string>("ALL");
+  const [activeSpiderfyId, setActiveSpiderfyId] = useState<string | null>(null);
+  const [hoveredRouteIdx, setHoveredRouteIdx] = useState<number | null>(null);
+  const [isLegendOpen, setIsLegendOpen] = useState<boolean>(true);
+  const [totalIncidentsCount, setTotalIncidentsCount] = useState<number>(DEFAULT_INCIDENTS.length);
+  const [filteredIncidentsCount, setFilteredIncidentsCount] = useState<number>(DEFAULT_INCIDENTS.length);
+
   const [layersState, setLayersState] = useState({
     roads: true,
     incidents: true,
@@ -653,6 +709,31 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
 
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [isLayersPanelOpen, setIsLayersPanelOpen] = useState(false);
+
+  // Ensure spiderfy leader lines source and layer exist
+  const initSpiderfyLinesLayer = (mapInst: maplibregl.Map) => {
+    if (!mapInst.getSource("spiderfy-lines-src")) {
+      mapInst.addSource("spiderfy-lines-src", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      mapInst.addLayer({
+        id: "spiderfy-lines-layer",
+        type: "line",
+        source: "spiderfy-lines-src",
+        layout: {
+          "line-join": "round",
+          "line-cap": "round",
+        },
+        paint: {
+          "line-color": "#475569",
+          "line-width": 1.8,
+          "line-dasharray": [3, 2],
+          "line-opacity": 0.85,
+        },
+      });
+    }
+  };
 
   // Initialize MapLibre
   useEffect(() => {
@@ -668,10 +749,24 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
 
     mapInstance.on("load", () => {
       map.current = mapInstance;
+      initSpiderfyLinesLayer(mapInstance);
       setIsMapLoaded(true);
       fetchMapFeatures(mapInstance);
       renderStorageMarkers(mapInstance, REGIONAL_STORAGE_UNITS);
     });
+
+    // Dynamic re-clustering on pan or zoom with debounce
+    const handleViewChange = () => {
+      if (reclusterDebounceTimer.current) clearTimeout(reclusterDebounceTimer.current);
+      reclusterDebounceTimer.current = setTimeout(() => {
+        if (map.current) {
+          renderIncidentMarkers(map.current);
+        }
+      }, 100);
+    };
+
+    mapInstance.on("zoomend", handleViewChange);
+    mapInstance.on("moveend", handleViewChange);
 
     // Handle Map Clicks
     mapInstance.on("click", (e) => {
@@ -686,18 +781,34 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
         } else {
           setSelectedRoad(null);
           setSelectedIncident(null);
+          if (activeSpiderfyGroupRef.current) {
+            activeSpiderfyGroupRef.current = null;
+            setActiveSpiderfyId(null);
+            renderIncidentMarkers(mapInstance);
+          }
         }
       }
     });
 
     // Cleanup
     return () => {
+      if (reclusterDebounceTimer.current) clearTimeout(reclusterDebounceTimer.current);
       truckMarkersRef.current.forEach((m) => m.remove());
       truckMarkersRef.current = [];
       storageMarkersRef.current.forEach((m) => m.remove());
       storageMarkersRef.current = [];
       incidentMarkersRef.current.forEach((m) => m.remove());
       incidentMarkersRef.current = [];
+      clusterMarkersRef.current.forEach((m) => m.remove());
+      clusterMarkersRef.current = [];
+      if (spiderfyCollapseMarkerRef.current) {
+        spiderfyCollapseMarkerRef.current.remove();
+        spiderfyCollapseMarkerRef.current = null;
+      }
+      routeMarkersRef.current.forEach((m) => m.remove());
+      routeMarkersRef.current = [];
+      if (roadPopupRef.current) roadPopupRef.current.remove();
+      if (routeTooltipPopupRef.current) routeTooltipPopupRef.current.remove();
 
       if (map.current) {
         map.current.remove();
@@ -712,6 +823,7 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
     map.current.setStyle(BASEMAP_STYLES[basemapStyle]);
     map.current.once("style.load", () => {
       if (map.current) {
+        initSpiderfyLinesLayer(map.current);
         fetchMapFeatures(map.current);
         renderStorageMarkers(map.current, REGIONAL_STORAGE_UNITS);
       }
@@ -857,217 +969,264 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
     });
   };
 
-  // Clear and Render Optimized High-Visibility Tactical Alert & Hazard Markers
-  const renderIncidentMarkers = (mapInst: maplibregl.Map, incidentDataList: IncidentMapData[]) => {
+  // Compact 1-line interactive marker element builder using SVG icons & semantic hierarchy
+  const createIncidentMarkerElement = (
+    inc: IncidentMapData,
+    visual: IncidentVisualConfig,
+    isSpiderfied: boolean
+  ): HTMLDivElement => {
+    const el = document.createElement("div");
+    el.className = "incident-alert-marker-wrapper group cursor-pointer relative flex flex-col items-center select-none";
+    el.style.zIndex = `${visual.zIndex + (isSpiderfied ? 12 : 0)}`;
+
+    const isCritical = inc.severity === "CRITICAL";
+    const isHigh = inc.severity === "HIGH";
+    const roadDisplay = inc.affected_road_code || inc.road_id || "Highway";
+    const freshness = (inc.freshness_state || "LIVE").toUpperCase();
+    const freshnessDot = freshness === "LIVE" ? "bg-emerald-400 animate-pulse" : "bg-amber-400";
+
+    el.innerHTML = `
+      <div class="relative flex items-center justify-center">
+        <!-- Animated Radar Waves for Critical and High Hazards -->
+        ${
+          isCritical
+            ? `<span class="absolute -inset-2.5 rounded-2xl ${visual.pulseColor} opacity-40 animate-ping"></span>
+               <span class="absolute -inset-1.5 rounded-2xl ${visual.pulseColor} opacity-60 animate-pulse"></span>
+               <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-600 rounded-full border border-white z-20"></span>`
+            : isHigh
+            ? `<span class="absolute -inset-1.5 rounded-2xl ${visual.pulseColor} opacity-40 animate-pulse"></span>`
+            : ""
+        }
+
+        <!-- Vector SVG High-Visibility Icon Badge -->
+        <div class="relative flex items-center justify-center rounded-xl shadow-floating border-2 border-white transition-all duration-200 transform group-hover:scale-125 group-hover:shadow-2xl ${visual.bgGradientClass} p-1 text-white" style="width: ${visual.sizePx}px; height: ${visual.sizePx}px;">
+          ${visual.iconSvg}
+        </div>
+      </div>
+
+      <!-- Ground Pointer Triangle (omitted in spiderfied nodes) -->
+      ${
+        !isSpiderfied
+          ? `<div class="w-0 h-0 border-l-[3.5px] border-l-transparent border-r-[3.5px] border-r-transparent border-t-[4.5px] -mt-[1px]" style="border-top-color: ${visual.colorHex};"></div>`
+          : ""
+      }
+
+      <!-- Compact 1-Line Corridor Micro Tag -->
+      <div class="mt-0.5 px-1.5 py-0.2 bg-white/95 backdrop-blur-md rounded shadow-xs border border-slate-200/90 text-[9px] font-bold whitespace-nowrap flex items-center gap-1 group-hover:border-rose-400 group-hover:bg-rose-50 transition-colors pointer-events-none">
+        <span class="font-extrabold" style="color: ${visual.colorHex};">${visual.typeLabel.split(" ")[0]}</span>
+        <span class="text-slate-300 font-normal">•</span>
+        <span class="text-slate-700 font-medium max-w-[85px] truncate">${roadDisplay}</span>
+      </div>
+
+      <!-- Compact 1-Line Glassmorphic Hover Preview Tooltip (Zero Clipping) -->
+      <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none scale-90 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-150 z-50 px-2.5 py-1 bg-slate-900/95 backdrop-blur-md text-white rounded-lg shadow-xl text-[11px] whitespace-nowrap border border-slate-700/80 flex items-center gap-2 max-w-[240px]">
+        <span class="w-2 h-2 rounded-full ${freshnessDot}"></span>
+        <span class="font-bold text-slate-100 truncate">${inc.title}</span>
+        <span class="text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${visual.severityBadgeClass}">
+          ${inc.severity || "HIGH"}
+        </span>
+        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45 border-r border-b border-slate-700/80"></div>
+      </div>
+    `;
+
+    return el;
+  };
+
+  // Render Optimized High-Visibility Tactical Alert & Hazard Markers with Spiderfy & Clustering
+  const renderIncidentMarkers = (mapInst: maplibregl.Map, incidentDataList?: IncidentMapData[]) => {
+    if (incidentDataList) {
+      rawIncidentsRef.current = incidentDataList;
+      setTotalIncidentsCount(incidentDataList.length);
+    }
+
+    // Clean up previous DOM markers
     incidentMarkersRef.current.forEach((m) => m.remove());
     incidentMarkersRef.current = [];
+    clusterMarkersRef.current.forEach((m) => m.remove());
+    clusterMarkersRef.current = [];
+    if (spiderfyCollapseMarkerRef.current) {
+      spiderfyCollapseMarkerRef.current.remove();
+      spiderfyCollapseMarkerRef.current = null;
+    }
 
-    incidentDataList.forEach((inc) => {
-      const lat = inc.lat;
-      const lng = inc.lng;
-      if (!lat || !lng) return;
+    const currentZoom = mapInst.getZoom();
 
-      const severity = (inc.severity || "HIGH").toUpperCase();
-      const isCritical = severity === "CRITICAL";
-      const isHigh = severity === "HIGH";
-      const isMedium = severity === "MEDIUM";
-      const type = (inc.type || "hazard").toLowerCase();
-
-      // Icon & Emoji determination
-      let iconEmoji = "⚠️";
-      let typeLabel = "Road Hazard";
-      let iconSvg = `
-        <svg class="w-4 h-4 text-white drop-shadow-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-      `;
-
-      if (type.includes("landslide") || type.includes("slide")) {
-        iconEmoji = "🏔️";
-        typeLabel = "Landslide Slip";
-        iconSvg = `
-          <svg class="w-4 h-4 text-white drop-shadow-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m8 3 4 8 5-5 5 15H2L8 3z"/>
-            <path d="M4.14 15.08c2.62-1.57 5.24-1.43 7.86.42 2.74 1.94 5.49 2 8.23.19"/>
-            <circle cx="17.5" cy="11.5" r="1.5" fill="currentColor"/>
-          </svg>
-        `;
-      } else if (type.includes("rockfall") || type.includes("boulder")) {
-        iconEmoji = "🪨";
-        typeLabel = "Rockfall / Boulder";
-        iconSvg = `
-          <svg class="w-4 h-4 text-white drop-shadow-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-            <polyline points="2 17 12 22 22 17"/>
-            <polyline points="2 12 12 17 22 12"/>
-          </svg>
-        `;
-      } else if (type.includes("flood") || type.includes("waterlog") || type.includes("inundation")) {
-        iconEmoji = "🌊";
-        typeLabel = "Flash Flood";
-        iconSvg = `
-          <svg class="w-4 h-4 text-white drop-shadow-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
-            <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
-            <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
-          </svg>
-        `;
-      } else if (type.includes("bridge") || type.includes("structure")) {
-        iconEmoji = "🚧";
-        typeLabel = "Bridge / Culvert";
-        iconSvg = `
-          <svg class="w-4 h-4 text-white drop-shadow-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 19V5M20 19V5M2 8h20M2 14h20M7 8v6M12 8v6M17 8v6"/>
-          </svg>
-        `;
-      } else if (type.includes("snow") || type.includes("ice") || type.includes("frost")) {
-        iconEmoji = "❄️";
-        typeLabel = "Snow / Black Ice";
-        iconSvg = `
-          <svg class="w-4 h-4 text-white drop-shadow-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="2" x2="12" y2="22"/>
-            <line x1="2" y1="12" x2="22" y2="12"/>
-            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-            <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/>
-          </svg>
-        `;
+    // 1. Filter raw incidents by type & severity
+    const filtered = rawIncidentsRef.current.filter((inc) => {
+      if (!inc.lat || !inc.lng) return false;
+      const sev = (inc.severity || "MEDIUM").toUpperCase();
+      if (incidentSeverityFilter !== "ALL" && sev !== incidentSeverityFilter) {
+        return false;
       }
-
-      // Severity Color Schemes & Radar Aura
-      let bgGradient = "bg-gradient-to-tr from-rose-600 via-red-600 to-rose-500 shadow-rose-600/50 border-rose-200";
-      let pulseColor = "bg-rose-500";
-      let severityBadge = "bg-rose-50 border-rose-200 text-rose-700";
-      let severityText = "CRITICAL";
-
-      if (severity === "HIGH") {
-        bgGradient = "bg-gradient-to-tr from-orange-600 via-amber-600 to-orange-500 shadow-orange-500/50 border-orange-200";
-        pulseColor = "bg-orange-500";
-        severityBadge = "bg-orange-50 border-orange-200 text-orange-700";
-        severityText = "HIGH RISK";
-      } else if (severity === "MEDIUM") {
-        bgGradient = "bg-gradient-to-tr from-amber-500 via-yellow-500 to-amber-600 shadow-amber-500/40 border-amber-200";
-        pulseColor = "bg-amber-400";
-        severityBadge = "bg-amber-50 border-amber-200 text-amber-700";
-        severityText = "MODERATE";
-      } else if (severity === "LOW") {
-        bgGradient = "bg-gradient-to-tr from-sky-500 to-blue-600 shadow-blue-500/40 border-blue-200";
-        pulseColor = "bg-sky-400";
-        severityBadge = "bg-blue-50 border-blue-200 text-blue-700";
-        severityText = "ADVISORY";
+      if (incidentTypeFilter !== "ALL") {
+        const t = (inc.type || "").toLowerCase();
+        if (!t.includes(incidentTypeFilter.toLowerCase())) return false;
       }
+      return true;
+    });
 
-      // Provenance and Trust Level tags
-      const trust = (inc.source_trust_level || "OFFICIAL").toUpperCase();
-      let trustBadgeClass = "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
-      let trustShort = "L1 OFFICIAL";
-      if (trust === "VERIFIED_PROVIDER") {
-        trustBadgeClass = "bg-sky-500/20 text-sky-300 border-sky-500/30";
-        trustShort = "L2 VERIFIED";
-      } else if (trust === "REPUTABLE_NEWS") {
-        trustBadgeClass = "bg-amber-500/20 text-amber-300 border-amber-500/30";
-        trustShort = "L3 NEWS";
-      } else if (trust === "UNVERIFIED") {
-        trustBadgeClass = "bg-slate-500/20 text-slate-300 border-slate-500/30";
-        trustShort = "L4 UNVERIFIED";
-      }
+    setFilteredIncidentsCount(filtered.length);
 
-      const freshness = (inc.freshness_state || "LIVE").toUpperCase();
-      const freshnessDot = freshness === "LIVE" ? "bg-emerald-400 animate-pulse" : (freshness === "RECENT" ? "bg-amber-400" : "bg-slate-400");
-      const confPct = Math.round((inc.confidence_score ?? 0.85) * 100);
-      const roadDisplay = inc.affected_road_code || inc.road_id || "Highway Corridor";
-      const sourceDisplay = inc.source_name || "Official Feeds";
+    // 2. Active Spiderfy layout if a cluster is currently expanded
+    const activeSpiderfy = activeSpiderfyGroupRef.current;
+    if (activeSpiderfy) {
+      const spiderfyPoints = activeSpiderfy.items.map((inc) => ({
+        id: inc.id,
+        lng: inc.lng,
+        lat: inc.lat,
+        data: inc,
+      }));
 
-      const el = document.createElement("div");
-      el.className = "incident-alert-marker-wrapper group cursor-pointer relative flex flex-col items-center select-none";
-      el.style.zIndex = isCritical ? "35" : isHigh ? "30" : "25";
+      const spiderResult = generateSpiderfyLayout(mapInst, spiderfyPoints, 65);
+      if (spiderResult) {
+        // Update SVG/GeoJSON leader lines
+        const lineFeatures = spiderResult.nodes.map((node) => ({
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [node.anchorLngLat, node.displayLngLat],
+          },
+          properties: {},
+        }));
 
-      el.innerHTML = `
-        <div class="relative flex items-center justify-center">
-          <!-- Animated Radar Beacon Waves -->
-          ${
-            isCritical
-              ? `<span class="absolute -inset-3.5 rounded-2xl ${pulseColor} opacity-40 animate-ping"></span>
-                 <span class="absolute -inset-2 rounded-2xl ${pulseColor} opacity-60 animate-pulse"></span>
-                 <span class="absolute -top-1 -right-1 w-3 h-3 bg-red-400 rounded-full animate-ping z-20"></span>
-                 <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-600 rounded-full border-2 border-white z-20"></span>`
-              : isHigh
-              ? `<span class="absolute -inset-2.5 rounded-2xl ${pulseColor} opacity-40 animate-ping"></span>
-                 <span class="absolute -inset-1.5 rounded-2xl ${pulseColor} opacity-60 animate-pulse"></span>`
-              : `<span class="absolute -inset-1 rounded-xl ${pulseColor} opacity-30 animate-pulse"></span>`
-          }
+        const src = mapInst.getSource("spiderfy-lines-src") as maplibregl.GeoJSONSource;
+        if (src) {
+          src.setData({
+            type: "FeatureCollection",
+            features: lineFeatures as any,
+          });
+        }
 
-          <!-- Optimized High-Visibility Alert Pin Icon Badge -->
-          <div class="relative flex items-center justify-center w-8 h-8 rounded-xl shadow-floating border-2 border-white transition-all duration-200 transform group-hover:scale-125 group-hover:shadow-2xl ${bgGradient}">
-            ${iconSvg}
-          </div>
-        </div>
+        // Render spiderfied individual markers
+        spiderResult.nodes.forEach((node) => {
+          const inc = node.point.data;
+          const visual = getIncidentVisualConfig(inc.type, inc.severity, true);
+          const el = createIncidentMarkerElement(inc, visual, true);
 
-        <!-- Ground Pointer Triangle -->
-        <div class="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] ${
-          isCritical ? "border-t-rose-600" : isHigh ? "border-t-orange-600" : "border-t-amber-500"
-        } -mt-[1px]"></div>
+          el.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setSelectedIncident(inc);
+            setSelectedRoad(null);
+            setSelectedTruck(null);
+            setSelectedStorage(null);
+            mapInst.flyTo({ center: [inc.lng, inc.lat], zoom: Math.max(currentZoom, 12), essential: true, duration: 600 });
+            if (onFeatureClick) onFeatureClick(inc);
+            addToast({
+              title: `🚨 ${inc.severity || "CRITICAL"} Alert: ${inc.title}`,
+              description: `Corridor: ${inc.road_id || "Highway"}. Status: ${inc.status || "OPEN"}. Opening triage drawer.`,
+              type: inc.severity === "CRITICAL" ? "error" : "warning",
+            });
+          });
 
-        <!-- Floating Compact Badge Tag -->
-        <div class="mt-1 px-2 py-0.5 bg-white/95 backdrop-blur-md rounded-md shadow-xs border border-slate-200/90 text-[10px] font-bold whitespace-nowrap flex items-center gap-1.5 group-hover:border-rose-400 group-hover:bg-rose-50 transition-colors">
-          <span>${iconEmoji}</span>
-          <span class="text-slate-900 font-extrabold uppercase tracking-tight">${severityText}</span>
-          <span class="text-slate-300 font-normal">•</span>
-          <span class="text-slate-700 font-medium max-w-[100px] truncate">${roadDisplay}</span>
-        </div>
-
-        <!-- Rich Glassmorphic Interactive Hover Preview Card -->
-        <div class="absolute -top-40 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none scale-90 translate-y-2 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-200 z-50 p-3.5 bg-slate-900/95 backdrop-blur-md text-white rounded-xl shadow-2xl text-[11px] whitespace-normal w-72 border border-slate-700/80">
-          <div class="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-700/60">
-            <div class="flex items-center gap-1.5 font-bold text-sky-300">
-              <span>${iconEmoji}</span>
-              <span class="font-mono text-white text-xs">${inc.incident_code || "HAZARD"}</span>
-              <span class="w-2 h-2 rounded-full ${freshnessDot}"></span>
-              <span class="text-[9px] text-slate-300 font-semibold">${freshness}</span>
-            </div>
-            <span class="text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wider ${severityBadge}">
-              ${severity}
-            </span>
-          </div>
-          <div class="text-[11px] font-bold text-slate-100 mt-2 line-clamp-1">${inc.title}</div>
-          <div class="text-[10px] text-slate-300 mt-1 line-clamp-2 leading-relaxed">${inc.description || "Active hazard requiring caution or route bypass."}</div>
-          <div class="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
-            <div class="flex items-center gap-1.5">
-              <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border ${trustBadgeClass}">
-                ${trustShort}
-              </span>
-              <span class="text-slate-400 font-mono">${confPct}% conf</span>
-            </div>
-            <span class="text-amber-300 font-medium">📍 ${roadDisplay}</span>
-          </div>
-          <div class="text-[9px] text-slate-400 mt-1 truncate">
-            Source: <span class="text-sky-300 font-medium">${sourceDisplay}</span>
-          </div>
-          <div class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45 border-r border-b border-slate-700/80"></div>
-        </div>
-      `;
-
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        setSelectedIncident(inc);
-        setSelectedRoad(null);
-        setSelectedTruck(null);
-        setSelectedStorage(null);
-        mapInst.flyTo({ center: [lng, lat], zoom: 11.5, essential: true, duration: 900 });
-        if (onFeatureClick) onFeatureClick(inc);
-        addToast({
-          title: `🚨 ${severity} Alert: ${inc.title}`,
-          description: `Corridor: ${inc.road_id || "Highway"}. Status: ${inc.status || "OPEN"}. Opening triage & detour controller.`,
-          type: severity === "CRITICAL" ? "error" : "warning",
+          const marker = new maplibregl.Marker({ element: el })
+            .setLngLat(node.displayLngLat)
+            .addTo(mapInst);
+          incidentMarkersRef.current.push(marker);
         });
-      });
 
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([lng, lat])
-        .addTo(mapInst);
+        // Center collapse anchor badge
+        const collapseEl = document.createElement("div");
+        collapseEl.className = "cursor-pointer group flex items-center justify-center select-none";
+        collapseEl.innerHTML = `
+          <div class="relative w-7 h-7 rounded-full bg-slate-900/90 hover:bg-rose-600 border-2 border-white shadow-floating text-white flex items-center justify-center text-xs font-bold transition-transform hover:scale-125" title="Collapse expanded incidents">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            <div class="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap font-medium">
+              Collapse Group
+            </div>
+          </div>
+        `;
+        collapseEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          activeSpiderfyGroupRef.current = null;
+          setActiveSpiderfyId(null);
+          renderIncidentMarkers(mapInst);
+        });
 
-      incidentMarkersRef.current.push(marker);
+        const collapseMarker = new maplibregl.Marker({ element: collapseEl })
+          .setLngLat(spiderResult.anchorLngLat)
+          .addTo(mapInst);
+        spiderfyCollapseMarkerRef.current = collapseMarker;
+      }
+    } else {
+      const src = mapInst.getSource("spiderfy-lines-src") as maplibregl.GeoJSONSource;
+      if (src) {
+        src.setData({ type: "FeatureCollection", features: [] });
+      }
+    }
+
+    // 3. Proximity Clustering for non-spiderfied incidents
+    const nonSpiderfied = activeSpiderfy
+      ? filtered.filter((inc) => !activeSpiderfy.items.some((si) => si.id === inc.id))
+      : filtered;
+
+    const clusters = groupNearbyIncidents(mapInst, nonSpiderfied, 45);
+
+    clusters.forEach((cluster) => {
+      if (cluster.isCluster) {
+        // Render Cluster Badge
+        const clusterEl = document.createElement("div");
+        clusterEl.innerHTML = createClusterBadgeMarkup(cluster.items.length, cluster.maxSeverity);
+
+        // Tooltip showing brief count on hover
+        const previewEl = document.createElement("div");
+        previewEl.className = "absolute -top-11 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none scale-95 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-150 z-50 px-2.5 py-1 bg-slate-900/95 backdrop-blur-md text-white rounded-lg shadow-xl text-[10px] whitespace-nowrap border border-slate-700/80 flex items-center gap-1.5";
+        previewEl.innerHTML = `
+          <span class="font-bold text-amber-300">${cluster.items.length} Incidents</span>
+          <span class="text-slate-400">•</span>
+          <span class="text-slate-200">Click to ${currentZoom < 13.5 ? "zoom in" : "expand"}</span>
+        `;
+        clusterEl.firstElementChild?.appendChild(previewEl);
+
+        clusterEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (currentZoom < 13.5) {
+            mapInst.flyTo({
+              center: cluster.centerLngLat,
+              zoom: Math.min(currentZoom + 2.5, 14.5),
+              essential: true,
+              duration: 700,
+            });
+          } else {
+            // Trigger radial spiderfy expansion
+            activeSpiderfyGroupRef.current = {
+              anchorLngLat: cluster.centerLngLat,
+              items: cluster.items,
+            };
+            setActiveSpiderfyId(`cluster-${cluster.centerLngLat.join(",")}`);
+            renderIncidentMarkers(mapInst);
+          }
+        });
+
+        const clusterMarker = new maplibregl.Marker({ element: clusterEl })
+          .setLngLat(cluster.centerLngLat)
+          .addTo(mapInst);
+        clusterMarkersRef.current.push(clusterMarker);
+      } else {
+        // Single Incident Marker
+        const inc = cluster.items[0];
+        const visual = getIncidentVisualConfig(inc.type, inc.severity, false);
+        const el = createIncidentMarkerElement(inc, visual, false);
+
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          setSelectedIncident(inc);
+          setSelectedRoad(null);
+          setSelectedTruck(null);
+          setSelectedStorage(null);
+          mapInst.flyTo({ center: [inc.lng, inc.lat], zoom: Math.max(currentZoom, 11.5), essential: true, duration: 800 });
+          if (onFeatureClick) onFeatureClick(inc);
+          addToast({
+            title: `🚨 ${inc.severity || "CRITICAL"} Alert: ${inc.title}`,
+            description: `Corridor: ${inc.road_id || "Highway"}. Status: ${inc.status || "OPEN"}. Opening triage & detour controller.`,
+            type: inc.severity === "CRITICAL" ? "error" : "warning",
+          });
+        });
+
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat([inc.lng, inc.lat])
+          .addTo(mapInst);
+        incidentMarkersRef.current.push(marker);
+      }
     });
   };
 
@@ -1311,7 +1470,16 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
     }
   };
 
-  // Render Routes
+  // Deterministic Candidate Route Visual Palette & Casing Offsets
+  const CANDIDATE_PALETTE = [
+    { color: "#2563eb", name: "Recommended Corridor", offset: 0 },
+    { color: "#8b5cf6", name: "Detour Corridor 1", offset: 3.5 },
+    { color: "#f59e0b", name: "Detour Corridor 2", offset: -3.5 },
+    { color: "#10b981", name: "Detour Corridor 3", offset: 7 },
+    { color: "#06b6d4", name: "Detour Corridor 4", offset: -7 },
+  ];
+
+  // Render Candidate & Alternative Routes with deterministic colors, casing, and line-offsets
   const activePrimary = highlightRouteGeojson || inMapPrimaryRoute;
   const activeAlt = alternateRouteGeojson || inMapAltRoute;
 
@@ -1323,49 +1491,210 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
     routeMarkersRef.current.forEach((marker) => marker.remove());
     routeMarkersRef.current = [];
 
-    // Primary Route
-    if (activePrimary && activePrimary.coordinates && activePrimary.coordinates.length >= 2) {
-      if (!m.getSource("primary-route-src")) {
-        m.addSource("primary-route-src", {
+    // Construct normalized list of routes to display
+    interface NormalizedRoute {
+      idx: number;
+      name: string;
+      geojson: any;
+      coordinates: [number, number][];
+      isActive: boolean;
+      color: string;
+      offset: number;
+      distance_km?: number;
+      eta_formatted?: string;
+      risk_score?: number;
+    }
+
+    const routesToDisplay: NormalizedRoute[] = [];
+
+    if (candidateRoutes && candidateRoutes.length > 0) {
+      candidateRoutes.forEach((cr, i) => {
+        const rawGeo = cr.waypoints || (cr.coordinates ? { type: "LineString", coordinates: cr.coordinates } : cr);
+        const coords = rawGeo?.coordinates || (Array.isArray(rawGeo) ? rawGeo : []);
+        if (coords.length >= 2) {
+          const pal = CANDIDATE_PALETTE[i % CANDIDATE_PALETTE.length];
+          routesToDisplay.push({
+            idx: i,
+            name: cr.name || `Route Candidate ${i + 1}`,
+            geojson: rawGeo.type ? rawGeo : { type: "LineString", coordinates: coords },
+            coordinates: coords,
+            isActive: i === activeRouteIndex,
+            color: cr.color || pal.color,
+            offset: pal.offset,
+            distance_km: cr.distance_km,
+            eta_formatted: cr.eta_formatted,
+            risk_score: cr.logistics_risk_score,
+          });
+        }
+      });
+    } else {
+      // Fallback to activePrimary and activeAlt
+      if (activePrimary && activePrimary.coordinates && activePrimary.coordinates.length >= 2) {
+        routesToDisplay.push({
+          idx: 0,
+          name: activeRouteInfo?.route_name || "Recommended Highway Corridor",
+          geojson: activePrimary,
+          coordinates: activePrimary.coordinates,
+          isActive: true,
+          color: CANDIDATE_PALETTE[0].color,
+          offset: 0,
+          distance_km: activeRouteInfo?.distance_km,
+          eta_formatted: activeRouteInfo?.estimated_duration_minutes
+            ? `${Math.floor(activeRouteInfo.estimated_duration_minutes / 60)}h ${activeRouteInfo.estimated_duration_minutes % 60}m`
+            : undefined,
+          risk_score: activeRouteInfo?.risk_score,
+        });
+      }
+      if (activeAlt && activeAlt.coordinates && activeAlt.coordinates.length >= 2) {
+        routesToDisplay.push({
+          idx: 1,
+          name: "Alternate Valley Detour",
+          geojson: activeAlt,
+          coordinates: activeAlt.coordinates,
+          isActive: false,
+          color: CANDIDATE_PALETTE[1].color,
+          offset: CANDIDATE_PALETTE[1].offset,
+        });
+      }
+    }
+
+    // Clean up any stale route layers above routesToDisplay count (up to 10)
+    for (let i = routesToDisplay.length; i < 10; i++) {
+      if (m.getLayer(`route-line-${i}`)) m.removeLayer(`route-line-${i}`);
+      if (m.getLayer(`route-casing-${i}`)) m.removeLayer(`route-casing-${i}`);
+      if (m.getSource(`route-src-${i}`)) m.removeSource(`route-src-${i}`);
+    }
+
+    // Clean legacy source IDs if any
+    if (m.getLayer("primary-route-line")) m.removeLayer("primary-route-line");
+    if (m.getLayer("primary-route-glow")) m.removeLayer("primary-route-glow");
+    if (m.getSource("primary-route-src")) m.removeSource("primary-route-src");
+    if (m.getLayer("alt-route-line")) m.removeLayer("alt-route-line");
+    if (m.getSource("alt-route-src")) m.removeSource("alt-route-src");
+
+    // Render each candidate route
+    routesToDisplay.forEach((r) => {
+      const srcId = `route-src-${r.idx}`;
+      const casingId = `route-casing-${r.idx}`;
+      const lineId = `route-line-${r.idx}`;
+
+      const existingSource = m.getSource(srcId) as maplibregl.GeoJSONSource;
+      if (!existingSource) {
+        m.addSource(srcId, {
           type: "geojson",
-          data: activePrimary,
+          data: r.geojson,
         });
-        // Casing/glow for visibility over dark/light tiles
+
+        // Layer 1: Layered Outer Casing (9px) - White on light map, dark on satellite/topo
         m.addLayer({
-          id: "primary-route-glow",
+          id: casingId,
           type: "line",
-          source: "primary-route-src",
+          source: srcId,
           layout: {
             "line-join": "round",
             "line-cap": "round",
           },
           paint: {
-            "line-color": "#1d4ed8",
-            "line-width": 9,
-            "line-opacity": 0.4,
+            "line-color": basemapStyle === "satellite" ? "#0f172a" : "#ffffff",
+            "line-width": r.isActive ? 10.0 : 7.5,
+            "line-offset": r.offset,
+            "line-opacity": r.isActive ? 0.95 : 0.65,
           },
         });
+
+        // Layer 2: Core Colored Route Line (5.5px inner line) with line-offset for shared corridors
         m.addLayer({
-          id: "primary-route-line",
+          id: lineId,
           type: "line",
-          source: "primary-route-src",
+          source: srcId,
           layout: {
             "line-join": "round",
             "line-cap": "round",
           },
           paint: {
-            "line-color": "#2563eb",
-            "line-width": 5,
+            "line-color": r.color,
+            "line-width": r.isActive ? 5.5 : 3.8,
+            "line-offset": r.offset,
+            "line-opacity": r.isActive ? 1.0 : 0.75,
           },
+        });
+
+        // Interactive route selection and hover effects
+        m.on("mouseenter", lineId, (e) => {
+          m.getCanvas().style.cursor = "pointer";
+          setHoveredRouteIdx(r.idx);
+          m.setPaintProperty(lineId, "line-width", 7.0);
+
+          if (!routeTooltipPopupRef.current) {
+            routeTooltipPopupRef.current = new maplibregl.Popup({
+              closeButton: false,
+              closeOnClick: false,
+              offset: 12,
+              className: "route-hover-popup",
+            });
+          }
+
+          routeTooltipPopupRef.current
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div class="px-3 py-2 bg-slate-900/95 backdrop-blur-md text-white rounded-xl shadow-xl text-xs border border-slate-700/80 select-none">
+                <div class="font-bold flex items-center gap-1.5" style="color: ${r.color}">
+                  <span class="w-2.5 h-2.5 rounded-full" style="background: ${r.color}"></span>
+                  <span class="text-white text-xs">${r.name}</span>
+                  ${r.isActive ? '<span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">ACTIVE</span>' : ""}
+                </div>
+                ${
+                  r.distance_km || r.eta_formatted || r.risk_score !== undefined
+                    ? `<div class="text-[10px] text-slate-300 mt-1 flex items-center gap-2">
+                        ${r.distance_km ? `<span>📏 ${r.distance_km} km</span>` : ""}
+                        ${r.eta_formatted ? `<span>⏱️ ${r.eta_formatted}</span>` : ""}
+                        ${r.risk_score !== undefined ? `<span class="${r.risk_score >= 50 ? "text-rose-400 font-bold" : "text-emerald-400 font-bold"}">Risk: ${r.risk_score}/100</span>` : ""}
+                      </div>`
+                    : ""
+                }
+                <div class="text-[9px] text-slate-400 mt-1">Click to select corridor</div>
+              </div>
+            `)
+            .addTo(m);
+        });
+
+        m.on("mouseleave", lineId, () => {
+          m.getCanvas().style.cursor = isPinHazardMode ? "crosshair" : "";
+          setHoveredRouteIdx(null);
+          m.setPaintProperty(lineId, "line-width", r.isActive ? 5.5 : 3.8);
+          if (routeTooltipPopupRef.current) routeTooltipPopupRef.current.remove();
+        });
+
+        m.on("click", lineId, (e) => {
+          e.originalEvent?.stopPropagation?.();
+          if (onSelectRoute) {
+            onSelectRoute(r.idx);
+            addToast({
+              title: `Route Selected: ${r.name}`,
+              description: `Switched active corridor to ${r.name}.`,
+              type: "info",
+            });
+          }
         });
       } else {
-        (m.getSource("primary-route-src") as maplibregl.GeoJSONSource).setData(activePrimary);
+        existingSource.setData(r.geojson);
+        m.setPaintProperty(casingId, "line-width", r.isActive ? 10.0 : 7.5);
+        m.setPaintProperty(casingId, "line-offset", r.offset);
+        m.setPaintProperty(casingId, "line-opacity", r.isActive ? 0.95 : 0.65);
+        m.setPaintProperty(casingId, "line-color", basemapStyle === "satellite" ? "#0f172a" : "#ffffff");
+        m.setPaintProperty(lineId, "line-width", r.isActive ? 5.5 : 3.8);
+        m.setPaintProperty(lineId, "line-offset", r.offset);
+        m.setPaintProperty(lineId, "line-opacity", r.isActive ? 1.0 : 0.75);
+        m.setPaintProperty(lineId, "line-color", r.color);
       }
+    });
 
-      // Add Start (Origin) and End (Destination) Markers
-      const coords = activePrimary.coordinates;
-      const startCoord = coords[0] as [number, number];
-      const endCoord = coords[coords.length - 1] as [number, number];
+    // Add Start (Origin) and End (Destination) Markers on Active Route
+    const activeRoute = routesToDisplay.find((r) => r.isActive) || routesToDisplay[0];
+    if (activeRoute && activeRoute.coordinates && activeRoute.coordinates.length >= 2) {
+      const coords = activeRoute.coordinates;
+      const startCoord = coords[0];
+      const endCoord = coords[coords.length - 1];
 
       const startEl = document.createElement("div");
       startEl.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-xl border-2 border-white ring-2 ring-emerald-600/30 z-20 pointer-events-none select-none";
@@ -1383,63 +1712,21 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
         .addTo(m);
       routeMarkersRef.current.push(endMarker);
 
-      // Fit map bounds to encompass the complete road route with comfortable padding
+      // Fit map bounds encompassing all candidate routes
       try {
         const bounds = new maplibregl.LngLatBounds();
-        coords.forEach((coord: [number, number]) => {
-          if (Array.isArray(coord) && coord.length >= 2 && !isNaN(coord[0]) && !isNaN(coord[1])) {
-            bounds.extend(coord as [number, number]);
-          }
-        });
-        if (activeAlt && activeAlt.coordinates) {
-          activeAlt.coordinates.forEach((coord: [number, number]) => {
+        routesToDisplay.forEach((r) => {
+          r.coordinates.forEach((coord) => {
             if (Array.isArray(coord) && coord.length >= 2 && !isNaN(coord[0]) && !isNaN(coord[1])) {
-              bounds.extend(coord as [number, number]);
+              bounds.extend(coord);
             }
           });
-        }
+        });
         if (!bounds.isEmpty()) {
-          m.fitBounds(bounds, { padding: 75, maxZoom: 13, duration: 1200 });
+          m.fitBounds(bounds, { padding: 75, maxZoom: 13, duration: 1000 });
         }
       } catch (err) {
         console.warn("Could not fit route bounds:", err);
-      }
-    } else {
-      if (m.getSource("primary-route-src")) {
-        if (m.getLayer("primary-route-line")) m.removeLayer("primary-route-line");
-        if (m.getLayer("primary-route-glow")) m.removeLayer("primary-route-glow");
-        m.removeSource("primary-route-src");
-      }
-    }
-
-    // Alternate Route
-    if (activeAlt && activeAlt.coordinates && activeAlt.coordinates.length >= 2) {
-      if (!m.getSource("alt-route-src")) {
-        m.addSource("alt-route-src", {
-          type: "geojson",
-          data: activeAlt,
-        });
-        m.addLayer({
-          id: "alt-route-line",
-          type: "line",
-          source: "alt-route-src",
-          layout: {
-            "line-join": "round",
-            "line-cap": "round",
-          },
-          paint: {
-            "line-color": "#f59e0b",
-            "line-width": 4.2,
-            "line-dasharray": [3, 2],
-          },
-        });
-      } else {
-        (m.getSource("alt-route-src") as maplibregl.GeoJSONSource).setData(activeAlt);
-      }
-    } else {
-      if (m.getSource("alt-route-src")) {
-        if (m.getLayer("alt-route-line")) m.removeLayer("alt-route-line");
-        m.removeSource("alt-route-src");
       }
     }
 
@@ -1488,7 +1775,15 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
         m.removeSource("blocked-segments-src");
       }
     }
-  }, [activePrimary, activeAlt, blockedRouteSegmentsGeojson, isMapLoaded]);
+  }, [
+    candidateRoutes,
+    activeRouteIndex,
+    activePrimary,
+    activeAlt,
+    blockedRouteSegmentsGeojson,
+    isMapLoaded,
+    basemapStyle,
+  ]);
 
   // Handle in-map route calculation output
   const handleInMapRoutesCalculated = (routes: any[]) => {
@@ -1652,6 +1947,92 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
           <LocateFixed className="w-4 h-4 text-slate-700 group-hover:text-brand-600 transition-colors" />
         </button>
       </div>
+
+      {/* Floating Tactical Incident Filter Toolbar (Top-Left, beside Nav) */}
+      {showFilterToolbar && (
+        <div className="absolute top-4 left-18 z-10 hidden md:flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-200/90 shadow-floating text-xs">
+          <div className="flex items-center gap-1.5 font-bold text-slate-700 pr-2 border-r border-slate-200">
+            <Filter className="w-3.5 h-3.5 text-brand-600" />
+            <span className="text-[11px]">Incidents</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
+              {filteredIncidentsCount}/{totalIncidentsCount}
+            </span>
+          </div>
+
+          {/* Severity Filter Buttons */}
+          <div className="flex items-center gap-1">
+            {[
+              { id: "ALL", label: "All" },
+              { id: "CRITICAL", label: "Critical", dot: "bg-rose-500" },
+              { id: "HIGH", label: "High", dot: "bg-orange-500" },
+              { id: "MEDIUM", label: "Mod", dot: "bg-amber-400" },
+            ].map((s) => (
+              <button
+                key={s.id}
+                onClick={() => {
+                  setIncidentSeverityFilter(s.id);
+                  if (map.current) {
+                    setTimeout(() => {
+                      if (map.current) renderIncidentMarkers(map.current);
+                    }, 20);
+                  }
+                }}
+                className={cn(
+                  "px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1",
+                  incidentSeverityFilter === s.id
+                    ? "bg-brand-600 text-white shadow-xs"
+                    : "bg-slate-100/80 text-slate-600 hover:bg-slate-200/80"
+                )}
+              >
+                {s.dot && <span className={cn("w-1.5 h-1.5 rounded-full", s.dot)}></span>}
+                <span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Type Filter Select */}
+          <div className="flex items-center gap-1 pl-1 border-l border-slate-200">
+            <select
+              value={incidentTypeFilter}
+              onChange={(e) => {
+                setIncidentTypeFilter(e.target.value);
+                if (map.current) {
+                  setTimeout(() => {
+                    if (map.current) renderIncidentMarkers(map.current);
+                  }, 20);
+                }
+              }}
+              className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5 text-[10px] font-semibold text-slate-700 focus:outline-none cursor-pointer"
+            >
+              <option value="ALL">All Hazard Types</option>
+              <option value="landslide">🏔️ Landslide / Slip</option>
+              <option value="flood">🌊 Flash Flood</option>
+              <option value="closure">🛑 Road Blockage</option>
+              <option value="accident">💥 Traffic Accident</option>
+              <option value="bridge">🚧 Bridge / Culvert</option>
+              <option value="traffic">🚦 Heavy Congestion</option>
+            </select>
+          </div>
+
+          {/* Reset Filters Shortcut if active */}
+          {(incidentSeverityFilter !== "ALL" || incidentTypeFilter !== "ALL") && (
+            <button
+              onClick={() => {
+                setIncidentSeverityFilter("ALL");
+                setIncidentTypeFilter("ALL");
+                if (map.current) {
+                  setTimeout(() => {
+                    if (map.current) renderIncidentMarkers(map.current);
+                  }, 20);
+                }
+              }}
+              className="text-[10px] font-bold text-rose-600 hover:text-rose-700 underline ml-1"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Floating GIS Layers Controller Toggle (Top-Right) */}
       {showLayerController && (
@@ -2053,6 +2434,78 @@ export const MapLibreView: React.FC<MapLibreViewProps> = ({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Persistent Map Symbology Legend (Bottom-Left) */}
+      {showLegend && (
+        <div className="absolute bottom-6 left-6 z-10 max-w-[240px] bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-floating text-xs overflow-hidden transition-all">
+          <div
+            onClick={() => setIsLegendOpen(!isLegendOpen)}
+            className="px-3 py-2 flex items-center justify-between font-bold text-slate-800 cursor-pointer hover:bg-slate-50 select-none"
+          >
+            <span className="flex items-center gap-1.5 text-[11px]">
+              <Layers className="w-3.5 h-3.5 text-brand-600" />
+              <span>Map Symbology</span>
+            </span>
+            <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 transition-transform duration-200", !isLegendOpen && "-rotate-90")} />
+          </div>
+
+          {isLegendOpen && (
+            <div className="p-2.5 pt-1 space-y-2 text-[10px] border-t border-slate-100 text-slate-600">
+              {/* Routes */}
+              <div>
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[9px] block mb-1">
+                  Route Corridors
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-1 rounded-full bg-[#2563eb]"></span>
+                    <span className="truncate">Recommended</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-1 rounded-full bg-[#8b5cf6]"></span>
+                    <span className="truncate">Detour 1</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-1 rounded-full bg-[#f59e0b]"></span>
+                    <span className="truncate">Detour 2</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-1 rounded-full bg-[#dc2626] border border-dashed border-red-300"></span>
+                    <span className="truncate">Blocked</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Incidents */}
+              <div>
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[9px] block mb-1">
+                  Alert Severity
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                    <span>Critical</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                    <span>High Risk</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span>Moderate</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full bg-rose-500 text-white font-mono font-bold text-[7px] flex items-center justify-center">
+                      3+
+                    </span>
+                    <span>Cluster (Radial)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

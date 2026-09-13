@@ -732,6 +732,36 @@ export default function RoutesPage() {
               {/* Map Canvas */}
               <div className="h-[460px] rounded-2xl overflow-hidden border border-slate-200/90 bg-white shadow-card relative">
                 <MapLibreView
+                  candidateRoutes={[
+                    ...(liveData.primary_route
+                      ? [
+                          {
+                            name: liveData.primary_route.name,
+                            waypoints: liveData.primary_route.waypoints,
+                            distance_km: liveData.primary_route.distance_km,
+                            eta_formatted: liveData.primary_route.eta_formatted,
+                            logistics_risk_score: liveData.primary_route.logistics_risk_score,
+                            is_recommended: liveData.primary_route.is_recommended,
+                          },
+                        ]
+                      : []),
+                    ...(liveData.alternative_route
+                      ? [
+                          {
+                            name: liveData.alternative_route.name,
+                            waypoints: liveData.alternative_route.waypoints,
+                            distance_km: liveData.alternative_route.distance_km,
+                            eta_formatted: liveData.alternative_route.eta_formatted,
+                            logistics_risk_score: liveData.alternative_route.logistics_risk_score,
+                            is_recommended: liveData.alternative_route.is_recommended,
+                          },
+                        ]
+                      : []),
+                  ]}
+                  activeRouteIndex={activeRouteKey === "primary" ? 0 : 1}
+                  onSelectRoute={(idx) => {
+                    setActiveRouteKey(idx === 0 ? "primary" : "alternative");
+                  }}
                   highlightRouteGeojson={activeRoute?.waypoints}
                   alternateRouteGeojson={
                     activeRouteKey === "primary" && liveData.alternative_route
@@ -753,6 +783,8 @@ export default function RoutesPage() {
                       : null
                   }
                   showLayerController={true}
+                  showFilterToolbar={true}
+                  showLegend={true}
                 />
 
                 {/* Map Floating Route Badge */}
