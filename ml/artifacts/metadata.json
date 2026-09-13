@@ -1,0 +1,49 @@
+{
+  "model_name": "NE-ROUTE Gradient Boosted Disruption Classifier",
+  "model_version": "1.0.0-ner-monsoon",
+  "algorithm": "GradientBoostingClassifier",
+  "training_timestamp": "2026-09-08T13:46:59.767482+00:00",
+  "n_samples": 4000,
+  "features": [
+    "rainfall_1h_mm",
+    "rainfall_6h_mm",
+    "rainfall_24h_mm",
+    "temperature_c",
+    "visibility_km",
+    "road_condition_score",
+    "traffic_level_score",
+    "slope_deg",
+    "elevation_m",
+    "historical_slide_freq",
+    "active_incidents_near",
+    "recent_field_reports",
+    "current_accessibility",
+    "hour_sin",
+    "hour_cos"
+  ],
+  "metrics": {
+    "accuracy": 0.94,
+    "precision": 0.9512,
+    "recall": 0.9867,
+    "f1_score": 0.9686,
+    "roc_auc": 0.8794
+  },
+  "feature_importances": {
+    "current_accessibility": 0.3021,
+    "rainfall_24h_mm": 0.1278,
+    "rainfall_6h_mm": 0.1268,
+    "traffic_level_score": 0.0643,
+    "hour_sin": 0.0585,
+    "historical_slide_freq": 0.0504,
+    "slope_deg": 0.0502,
+    "visibility_km": 0.0442,
+    "rainfall_1h_mm": 0.0391,
+    "temperature_c": 0.0371,
+    "elevation_m": 0.0358,
+    "recent_field_reports": 0.0292,
+    "hour_cos": 0.0267,
+    "active_incidents_near": 0.0061,
+    "road_condition_score": 0.0015
+  },
+  "notes": "Trained on calibrated NER geographical topography (Assam-Meghalaya-Manipur corridors)."
+}
