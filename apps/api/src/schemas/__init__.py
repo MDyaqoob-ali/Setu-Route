@@ -161,6 +161,25 @@ class VehicleLocationUpdate(BaseModel):
     fuel_percent: Optional[float] = None
     is_sos: Optional[bool] = None
 
+class VehicleCreate(BaseModel):
+    registration_number: str
+    vehicle_type: str = "Heavy Truck (16T)"
+    capacity_tons: float = 10.0
+    driver_name: str
+    driver_phone: str
+    current_status: str = "STOPPED"
+    current_lat: float = 26.1445
+    current_lng: float = 91.7362
+    fuel_percent: float = 85.0
+    destination_name: Optional[str] = None
+
+class DriverResponse(BaseModel):
+    id: Optional[str] = None
+    driver_name: str
+    driver_phone: str
+    status: str = "AVAILABLE"  # AVAILABLE, ASSIGNED, IN_TRANSIT
+    current_vehicle_reg: Optional[str] = None
+
 class VehicleResponse(BaseModel):
     id: str
     registration_number: str
@@ -270,6 +289,11 @@ class AlertResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 # Routing Schemas
+class WaypointItem(BaseModel):
+    name: str
+    lat: float
+    lng: float
+
 class RouteOptimizeRequest(BaseModel):
     origin_name: str
     origin_lat: float
@@ -277,9 +301,65 @@ class RouteOptimizeRequest(BaseModel):
     destination_name: str
     dest_lat: float
     dest_lng: float
+    waypoints: Optional[List[WaypointItem]] = None
     vehicle_type: str = "Heavy Truck (16T)"
     cargo_priority: str = "NORMAL"
     avoid_blocked_roads: bool = True
+
+# Connected Vehicle Journey Schemas
+class VehicleJourneyVehicleInfo(BaseModel):
+    registration_number: str
+    vehicle_type: str = "Heavy Truck (16T)"
+    capacity_tons: float = 10.0
+    driver_name: str
+    driver_phone: str
+    initial_status: Optional[str] = "STOPPED"
+    fuel_percent: Optional[float] = 90.0
+
+class VehicleJourneyConsignmentInfo(BaseModel):
+    title: str
+    cargo_category: str
+    cargo_description: Optional[str] = None
+    weight_tons: float = 5.0
+    priority: Optional[str] = "NORMAL"
+    package_count: Optional[int] = 1
+    instructions: Optional[str] = None
+
+class VehicleJourneyLocationInfo(BaseModel):
+    name: str
+    lat: float
+    lng: float
+    address: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+    scheduled_time: Optional[datetime] = None
+
+class VehicleJourneySelectedRoute(BaseModel):
+    route_name: str
+    distance_km: float
+    estimated_duration_minutes: int
+    risk_score: float = 0.2
+    risk_level: str = "LOW"
+    waypoints_geojson: Optional[Dict[str, Any]] = None
+    route_status: Optional[str] = "CLEAR"
+    is_recommended: Optional[bool] = True
+    affecting_incidents_count: Optional[int] = 0
+
+class VehicleJourneyCreate(BaseModel):
+    vehicle: VehicleJourneyVehicleInfo
+    consignment: VehicleJourneyConsignmentInfo
+    pickup: VehicleJourneyLocationInfo
+    destination: VehicleJourneyLocationInfo
+    waypoints: Optional[List[VehicleJourneyLocationInfo]] = None
+    selected_route: Optional[VehicleJourneySelectedRoute] = None
+
+class VehicleJourneyResponse(BaseModel):
+    success: bool
+    message: str
+    vehicle: VehicleResponse
+    delivery: DeliveryResponse
+    route_summary: Optional[Dict[str, Any]] = None
+
 
 class RouteResultResponse(BaseModel):
     id: str

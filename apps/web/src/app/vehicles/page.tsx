@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   Truck,
+  Plus,
   Phone,
   Navigation,
   Fuel,
@@ -146,7 +148,16 @@ export default function VehiclesPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap justify-end">
+          <Link
+            href="/vehicles/add"
+            id="btn-add-vehicle"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-xs font-semibold shadow-sm shadow-brand-500/20 hover:shadow-md transition-all hover:scale-[1.02]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Add Vehicle</span>
+          </Link>
+
           <div className="flex items-center gap-2 text-xs font-semibold bg-emerald-50 border border-emerald-200 px-3.5 py-2 rounded-xl text-emerald-800 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
             <Truck className="w-3.5 h-3.5" />

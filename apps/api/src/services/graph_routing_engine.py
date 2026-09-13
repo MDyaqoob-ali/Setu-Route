@@ -169,7 +169,8 @@ class GraphRoutingEngine:
         dest_lng: float,
         vehicle_type: str = "Heavy Truck (16T)",
         cargo_priority: str = "NORMAL",  # CRITICAL, HIGH, NORMAL, EXPEDITED
-        avoid_blocked: bool = True
+        avoid_blocked: bool = True,
+        waypoints: Optional[List[Any]] = None
     ) -> List[Dict[str, Any]]:
         # 1. Fetch live roads & active incidents
         roads_res = await db.execute(select(Road))
@@ -244,19 +245,19 @@ class GraphRoutingEngine:
             adj[u].append((v, dist, eff_speed, hwy, cost, road_risk, acc_status))
             adj[v].append((u, dist, eff_speed, hwy, cost, road_risk, acc_status))
 
-        # 3. Dijkstra Solver
-        def solve_path(cost_weight_mode="balanced", exclude_edges=set()):
+        # 3. Dijkstra Solver with Multi-Leg Waypoint Support
+        def solve_single_leg(leg_start: str, leg_end: str, cost_weight_mode="balanced", exclude_edges=set()):
             dist_cost = {n: float("inf") for n in NER_NODES}
-            dist_cost[start_node] = 0.0
+            dist_cost[leg_start] = 0.0
             prev = {}
             edge_info = {}
-            pq = [(0.0, start_node)]
+            pq = [(0.0, leg_start)]
 
             while pq:
                 cur_cost, u = heapq.heappop(pq)
                 if cur_cost > dist_cost[u]:
                     continue
-                if u == dest_node:
+                if u == leg_end:
                     break
 
                 for v, dist, spd, hwy, cost, risk, status in adj.get(u, []):
@@ -279,11 +280,11 @@ class GraphRoutingEngine:
                         edge_info[v] = (dist, spd, hwy, risk, status)
                         heapq.heappush(pq, (new_cost, v))
 
-            if dest_node not in prev and start_node != dest_node:
+            if leg_end not in prev and leg_start != leg_end:
                 return None
 
-            path = [dest_node]
-            curr = dest_node
+            path = [leg_end]
+            curr = leg_end
             total_km = 0.0
             total_min = 0
             max_risk = 0.0
@@ -302,8 +303,50 @@ class GraphRoutingEngine:
             path.reverse()
             return path, total_km, total_min, max_risk, edges_used
 
+        # Node targets for origin -> waypoints -> destination
+        node_targets = [start_node]
+        if waypoints:
+            for wp in waypoints:
+                wp_lat = wp.get("lat") if isinstance(wp, dict) else getattr(wp, "lat", None)
+                wp_lng = wp.get("lng") if isinstance(wp, dict) else getattr(wp, "lng", None)
+                if wp_lat is not None and wp_lng is not None:
+                    node_targets.append(find_nearest_node(float(wp_lat), float(wp_lng)))
+        node_targets.append(dest_node)
+
+        def solve_path(cost_weight_mode="balanced", exclude_edges=set()):
+            if len(node_targets) <= 2:
+                return solve_single_leg(start_node, dest_node, cost_weight_mode, exclude_edges)
+
+            combined_path = []
+            combined_km = 0.0
+            combined_min = 0
+            combined_max_risk = 0.0
+            combined_edges = []
+
+            for i in range(len(node_targets) - 1):
+                leg_res = solve_single_leg(node_targets[i], node_targets[i + 1], cost_weight_mode, exclude_edges)
+                if not leg_res:
+                    return None
+                l_path, l_km, l_min, l_risk, l_edges = leg_res
+                if i == 0:
+                    combined_path.extend(l_path)
+                else:
+                    combined_path.extend(l_path[1:])
+                combined_km += l_km
+                combined_min += l_min
+                combined_max_risk = max(combined_max_risk, l_risk)
+                combined_edges.extend(l_edges)
+
+            return combined_path, combined_km, combined_min, combined_max_risk, combined_edges
+
         async def build_road_aligned_coords(path_nodes: List[str]) -> Tuple[List[List[float]], float]:
             pts: List[Tuple[float, float]] = [(origin_lat, origin_lng)]
+            if waypoints:
+                for wp in waypoints:
+                    wp_lat = wp.get("lat") if isinstance(wp, dict) else getattr(wp, "lat", None)
+                    wp_lng = wp.get("lng") if isinstance(wp, dict) else getattr(wp, "lng", None)
+                    if wp_lat is not None and wp_lng is not None:
+                        pts.append((float(wp_lat), float(wp_lng)))
             for n in path_nodes:
                 c = NER_NODES[n]
                 pts.append((c[0], c[1]))

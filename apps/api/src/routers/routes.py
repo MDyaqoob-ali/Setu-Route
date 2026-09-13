@@ -52,7 +52,8 @@ async def optimize_route(
         dest_lng=request.dest_lng,
         vehicle_type=request.vehicle_type or "Heavy Truck (16T)",
         cargo_priority=request.cargo_priority or "NORMAL",
-        avoid_blocked=request.avoid_blocked_roads
+        avoid_blocked=request.avoid_blocked_roads,
+        waypoints=request.waypoints
     )
 
     # Correlate routes with real-world incidents and detect blockages

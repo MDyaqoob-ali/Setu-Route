@@ -1,10 +1,12 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
-from src.core.dependencies import get_current_user
 from src.core.exceptions import EntityNotFoundError
-from src.schemas import VehicleResponse, VehicleLocationUpdate
+from src.schemas import (
+    VehicleResponse, VehicleCreate, VehicleLocationUpdate,
+    DriverResponse, VehicleJourneyCreate, VehicleJourneyResponse
+)
 from src.services.vehicle_service import VehicleService
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
@@ -25,6 +27,49 @@ async def list_vehicles(
         offset=offset
     )
     return vehicles
+
+@router.get("/drivers", response_model=List[DriverResponse])
+async def get_drivers(db: AsyncSession = Depends(get_db)):
+    """
+    Returns available and in-transit drivers with their active vehicle assignments.
+    """
+    return await VehicleService.get_available_drivers(db)
+
+@router.get("/check-reg")
+async def check_registration_availability(
+    reg: str = Query(..., description="Vehicle registration number to check"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Real-time registration check for inline validation in Add Vehicle form.
+    """
+    available = await VehicleService.is_registration_available(db, reg)
+    return {
+        "registration_number": reg.strip().upper(),
+        "available": available,
+        "message": "Registration number is available." if available else "Registration number is already registered in fleet."
+    }
+
+@router.post("", response_model=VehicleResponse)
+async def create_vehicle(
+    data: VehicleCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Creates a standalone vehicle record in the fleet.
+    """
+    return await VehicleService.create(db, data)
+
+@router.post("/journey", response_model=VehicleJourneyResponse)
+async def create_vehicle_journey(
+    data: VehicleJourneyCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Atomic transaction: Creates a vehicle, consignment, assigns route,
+    logs initial location & dispatch event, and broadcasts telemetry.
+    """
+    return await VehicleService.create_journey(db, data)
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse)
 async def get_vehicle(vehicle_id: str, db: AsyncSession = Depends(get_db)):
