@@ -7,6 +7,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import random
 import uuid
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.models import Alert, Road, Vehicle, Delivery, Incident
 from src.ws.connection_manager import ws_manager
@@ -162,3 +163,87 @@ class AlertRuleEngine:
             "created_at": alert.created_at.isoformat()
         })
         return alert
+
+    @staticmethod
+    async def trigger_external_hazard_alert(
+        db: AsyncSession,
+        incident: Incident,
+        road: Optional[Road] = None
+    ) -> Optional[Alert]:
+        """
+        Creates a structured 4-part operational threat alert from real-world external hazard telemetry.
+        Adheres to Source Trust Hierarchy and broadcasts over WebSockets.
+        """
+        # Prevent duplicate unacknowledged alerts for the same incident
+        existing = await db.execute(
+            select(Alert).where(
+                Alert.entity_type == "incident",
+                Alert.entity_id == incident.id,
+                Alert.is_acknowledged == False
+            )
+        )
+        if existing.scalar_one_or_none():
+            return None
+
+        code = f"ALT-HAZ-{uuid.uuid4().hex[:6].upper()}"
+        source = incident.source_name or "Verified External Intelligence"
+        road_label = f" on {road.code} ({road.name})" if road else (f" on {incident.affected_road_code}" if incident.affected_road_code else "")
+
+        title = f"{incident.severity} {incident.type.replace('_', ' ').title()} Alert{road_label}"
+        what = (
+            f"Active {incident.severity} {incident.type.replace('_', ' ')} detected{road_label} near {incident.address or 'mile marker'} "
+            f"(Source: {source}, Trust: {incident.source_trust_level or 'VERIFIED'}). {incident.description or ''}"
+        ).strip()
+
+        inc_type = (incident.type or "").lower()
+        if inc_type in ["landslide", "road_closure", "bridge_damage", "rockfall"]:
+            why = f"High risk of physical corridor blockage, vehicle stranding, and multi-hour freight backlog on key arterial routes."
+            who = f"Commercial convoys, critical medical consignments, and interstate transit across {road.state if road else 'the sector'}."
+            action = f"Enforce immediate staging at nearest transit depot; calculate dynamic road-network bypass and stage road-clearing machinery."
+        elif inc_type in ["flood", "heavy_rain", "cloudburst"]:
+            why = f"Rapid water runoff and localized submergence risk along low-lying river valleys, weakening embankment integrity."
+            who = f"Heavy multi-axle freight and fuel tankers sensitive to hydroplaning and submerged roadbeds."
+            action = f"Reduce convoy speeds to 35 km/h; monitor live runoff gauges and divert high-priority consignments to elevated ridge routes."
+        elif inc_type == "earthquake":
+            why = f"Seismic ground shaking induces post-quake secondary landslides, rockfall hazards, and bridge bearing structural strain."
+            who = f"All active vehicular traffic within the epicenter buffer corridor."
+            action = f"Halt commercial movement temporarily; conduct rapid bridge inspection at critical culverts before resuming transit."
+        else:
+            why = f"Operational hazard impacting transit reliability and safety buffers."
+            who = f"Vehicles and delivery consignments scheduled across this corridor."
+            action = f"Monitor live telemetry and maintain situational awareness."
+
+        alert = Alert(
+            alert_code=code,
+            alert_type=f"HAZARD_{inc_type.upper()}",
+            severity=incident.severity,
+            title=title,
+            what_happened=what,
+            why_it_matters=why,
+            who_is_affected=who,
+            recommended_action=action,
+            entity_type="incident",
+            entity_id=incident.id,
+            district_id=incident.district_id,
+            is_acknowledged=False
+        )
+        db.add(alert)
+        await db.commit()
+        await db.refresh(alert)
+
+        await ws_manager.broadcast("alerts", "ALERT_CREATED", {
+            "id": alert.id,
+            "alert_code": alert.alert_code,
+            "title": alert.title,
+            "severity": alert.severity,
+            "what_happened": alert.what_happened,
+            "why_it_matters": alert.why_it_matters,
+            "who_is_affected": alert.who_is_affected,
+            "recommended_action": alert.recommended_action,
+            "entity_type": alert.entity_type,
+            "entity_id": alert.entity_id,
+            "source_name": source,
+            "created_at": alert.created_at.isoformat()
+        })
+        return alert
+

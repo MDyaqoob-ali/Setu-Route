@@ -31,9 +31,20 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("NE-ROUTE Database initialized successfully.")
 
-    # Trigger background ingestion cycle for external real-time intelligence
-    logger.info("Triggering background external intelligence ingestion cycle...")
-    asyncio.create_task(ingestion_coordinator.sync_all_sources())
+    # Trigger background tasks for alerts and external real-time intelligence
+    logger.info("Initializing operational alerts and triggering external intelligence...")
+    async def startup_tasks():
+        try:
+            backfilled = await ingestion_coordinator.ensure_alerts_for_active_hazards()
+            logger.info(f"Backfilled {backfilled} active operational hazard alerts.")
+        except Exception as e:
+            logger.warning(f"Error backfilling hazard alerts: {e}")
+        try:
+            await ingestion_coordinator.sync_all_sources()
+        except Exception as e:
+            logger.warning(f"Error in external intelligence sync: {e}")
+
+    asyncio.create_task(startup_tasks())
 
     yield
     logger.info("Shutting down NE-ROUTE API...")
@@ -71,6 +82,7 @@ app.include_router(roads.router, prefix=settings.API_V1_STR)
 app.include_router(roads.router)  # Also mount at root for /roads/{id}/health
 app.include_router(map.router, prefix=settings.API_V1_STR)
 app.include_router(alerts.router, prefix=settings.API_V1_STR)
+app.include_router(alerts.router)  # Also mount at root for direct /alerts
 app.include_router(routes.router, prefix=settings.API_V1_STR)
 app.include_router(sync.router, prefix=settings.API_V1_STR)
 app.include_router(risk.router, prefix=settings.API_V1_STR)

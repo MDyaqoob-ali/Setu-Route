@@ -19,17 +19,20 @@ import { Alert } from "@/types";
 import { formatRelativeTime } from "@/lib/utils";
 import { useToast } from "@/components/ui/ToastProvider";
 
+import { AlertDetailModal, AlertDetailData } from "@/components/alerts/AlertDetailModal";
+
 export const NotificationCenter: React.FC = () => {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [tab, setTab] = useState<"unread" | "all" | "critical">("unread");
+  const [selectedAlert, setSelectedAlert] = useState<AlertDetailData | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { data: alerts = [] } = useQuery<Alert[]>({
     queryKey: ["alerts"],
     queryFn: () => apiClient<Alert[]>("/alerts?limit=50"),
-    refetchInterval: 10000,
+    refetchInterval: 4000,
   });
 
   const ackMutation = useMutation({
@@ -38,6 +41,7 @@ export const NotificationCenter: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts-summary"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       addToast({
         title: "Alert Acknowledged",
@@ -173,14 +177,27 @@ export const NotificationCenter: React.FC = () => {
                   </p>
 
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                    <Link
-                      href={alert.entity_type === "incident" ? `/incidents?id=${alert.entity_id}` : "/alerts"}
-                      onClick={() => setIsOpen(false)}
-                      className="text-[11px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                    <button
+                      onClick={() => {
+                        setSelectedAlert({
+                          id: alert.id,
+                          alert_code: alert.alert_code,
+                          title: alert.title,
+                          severity: alert.severity,
+                          what_happened: alert.what_happened,
+                          why_it_matters: alert.why_it_matters,
+                          who_is_affected: alert.who_is_affected,
+                          recommended_action: alert.recommended_action,
+                          created_at: alert.created_at,
+                          is_acknowledged: alert.is_acknowledged,
+                        });
+                        setIsOpen(false);
+                      }}
+                      className="text-[11px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1 cursor-pointer"
                     >
-                      <span>Inspect Details</span>
+                      <span>Inspect 4-Part Briefing</span>
                       <ExternalLink className="w-3 h-3" />
-                    </Link>
+                    </button>
 
                     {!alert.is_acknowledged && (
                       <button
@@ -211,6 +228,18 @@ export const NotificationCenter: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 4-Part Operational Detail Modal */}
+      <AlertDetailModal
+        alert={selectedAlert}
+        isOpen={!!selectedAlert}
+        onClose={() => setSelectedAlert(null)}
+        onAcknowledge={(id) => {
+          ackMutation.mutate(id);
+          setSelectedAlert(null);
+        }}
+        isAcknowledging={ackMutation.isPending}
+      />
     </div>
   );
 };

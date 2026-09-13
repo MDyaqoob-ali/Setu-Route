@@ -31,11 +31,15 @@ import {
   Eye,
   PanelRightClose,
   PanelRightOpen,
+  ArrowRight,
 } from "lucide-react";
+import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/ToastProvider";
 import { cn } from "@/lib/utils";
+import { useRealtimeAlerts } from "@/hooks/useRealtimeAlerts";
+import { AlertDetailModal } from "@/components/alerts/AlertDetailModal";
 
 const KEY_CORRIDORS = [
   { code: "NH-6", name: "Shillong - Silchar Corridor (Meghalaya/Barak)", defaultLat: 25.185, defaultLng: 92.482 },
@@ -48,6 +52,8 @@ const KEY_CORRIDORS = [
 
 export default function LiveMapPage() {
   const { addToast } = useToast();
+  const { summary: alertSummary, acknowledgeAlert, isAcknowledging } = useRealtimeAlerts();
+  const [selectedAlertModal, setSelectedAlertModal] = useState<any | null>(null);
   const [selectedCorridorCode, setSelectedCorridorCode] = useState<string | null>("NH-6");
   const [showSimDrawer, setShowSimDrawer] = useState<boolean>(false);
   const [simScenario, setSimScenario] = useState<string>("landslide");
@@ -169,6 +175,44 @@ export default function LiveMapPage() {
             showToolbox={true}
             onSelectCorridor={(code) => setSelectedCorridorCode(code)}
           />
+
+          {/* Real-Time Operational Threat HUD Badge on Map */}
+          {alertSummary?.latest_threat && (
+            <div className="absolute top-4 left-4 z-20 max-w-sm w-full bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-rose-300 shadow-floating text-xs space-y-2 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                  </span>
+                  <span className="font-bold text-slate-900 text-xs truncate">
+                    {alertSummary.latest_threat.title}
+                  </span>
+                </div>
+                <StatusBadge status={alertSummary.latest_threat.severity} size="sm" />
+              </div>
+
+              <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
+                {alertSummary.latest_threat.what_happened}
+              </p>
+
+              <div className="flex items-center justify-between pt-1 text-[11px] border-t border-slate-100">
+                <button
+                  onClick={() => setSelectedAlertModal(alertSummary.latest_threat)}
+                  className="font-bold text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>4-Part Briefing</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+                <Link
+                  href="/alerts"
+                  className="text-slate-500 hover:text-slate-800 font-semibold"
+                >
+                  {alertSummary.total_unacknowledged} Active Alerts →
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Side: Floating Corridor Intelligence Panel */}
@@ -502,6 +546,18 @@ export default function LiveMapPage() {
           </div>
         </div>
       )}
+
+      {/* Interactive 4-Part Alert Modal */}
+      <AlertDetailModal
+        alert={selectedAlertModal}
+        isOpen={!!selectedAlertModal}
+        onClose={() => setSelectedAlertModal(null)}
+        onAcknowledge={(id) => {
+          acknowledgeAlert(id);
+          setSelectedAlertModal(null);
+        }}
+        isAcknowledging={isAcknowledging}
+      />
     </div>
   );
 }

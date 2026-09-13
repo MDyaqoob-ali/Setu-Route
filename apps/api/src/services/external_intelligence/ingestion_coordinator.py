@@ -25,6 +25,7 @@ from src.services.external_intelligence.deduplication_engine import (
     haversine_distance_km
 )
 from src.ws.connection_manager import ws_manager
+from src.services.alert_rule_engine import AlertRuleEngine
 
 logger = logging.getLogger("neroute.intelligence.coordinator")
 
@@ -241,6 +242,16 @@ class IngestionCoordinator:
                             .values(accessibility_status="BLOCKED", current_risk_score=0.95)
                         )
 
+                    # Trigger real-time actionable operational alert for severe hazards and closures
+                    matched_road_obj = next((r for r in roads if r.id == matched_road_id), None)
+                    if canon.get("severity") in ["CRITICAL", "HIGH"] or canon.get("status") in ["Blocked", "Partially Blocked"]:
+                        try:
+                            await db.flush()
+                            target_inc = new_inc if not existing else existing
+                            await AlertRuleEngine.trigger_external_hazard_alert(db, target_inc, matched_road_obj)
+                        except Exception as alert_err:
+                            logger.warning(f"Could not generate hazard alert: {alert_err}")
+
                 saved_count += 1
 
             # Update SourceHealth table
@@ -271,6 +282,34 @@ class IngestionCoordinator:
 
             await db.commit()
             return saved_count
+
+    async def ensure_alerts_for_active_hazards(self) -> int:
+        """
+        Backfills operational threat alerts for active critical/high hazards in the database if not already created.
+        """
+        async with AsyncSessionLocal() as db:
+            res = await db.execute(
+                select(Incident)
+                .where(
+                    Incident.status != "Resolved",
+                    Incident.severity.in_(["CRITICAL", "HIGH"])
+                )
+                .limit(20)
+            )
+            incidents = res.scalars().all()
+            if not incidents:
+                return 0
+
+            roads_res = await db.execute(select(Road))
+            roads_map = {r.id: r for r in roads_res.scalars().all()}
+
+            generated = 0
+            for inc in incidents:
+                road = roads_map.get(inc.road_id)
+                alert = await AlertRuleEngine.trigger_external_hazard_alert(db, inc, road)
+                if alert:
+                    generated += 1
+            return generated
 
 
 # Global singleton

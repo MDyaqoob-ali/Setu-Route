@@ -46,3 +46,40 @@ class AlertService:
             "acknowledged_at": alert.acknowledged_at.isoformat()
         })
         return alert
+
+    @staticmethod
+    async def get_summary(db: AsyncSession) -> dict:
+        query = select(Alert).where(Alert.is_acknowledged == False).order_by(desc(Alert.created_at))
+        result = await db.execute(query)
+        unacked = result.scalars().all()
+
+        critical_count = sum(1 for a in unacked if a.severity == "CRITICAL")
+        high_count = sum(1 for a in unacked if a.severity == "HIGH")
+        medium_count = sum(1 for a in unacked if a.severity == "MEDIUM")
+        low_count = sum(1 for a in unacked if a.severity == "LOW")
+
+        latest_threat = None
+        for a in unacked:
+            if a.severity in ["CRITICAL", "HIGH"]:
+                latest_threat = {
+                    "id": a.id,
+                    "alert_code": a.alert_code,
+                    "title": a.title,
+                    "severity": a.severity,
+                    "what_happened": a.what_happened,
+                    "why_it_matters": a.why_it_matters,
+                    "who_is_affected": a.who_is_affected,
+                    "recommended_action": a.recommended_action,
+                    "created_at": a.created_at.isoformat() if a.created_at else None
+                }
+                break
+
+        return {
+            "total_unacknowledged": len(unacked),
+            "critical_count": critical_count,
+            "high_count": high_count,
+            "medium_count": medium_count,
+            "low_count": low_count,
+            "latest_threat": latest_threat,
+            "status": "LIVE_TELEMETRY"
+        }

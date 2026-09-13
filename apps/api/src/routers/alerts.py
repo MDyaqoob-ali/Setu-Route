@@ -10,6 +10,13 @@ from src.services.alert_service import AlertService
 
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
+@router.get("/summary")
+async def get_alerts_summary(db: AsyncSession = Depends(get_db)):
+    """
+    Returns high-frequency operational alert summary including counts and latest threat.
+    """
+    return await AlertService.get_summary(db)
+
 @router.get("", response_model=List[AlertResponse])
 async def list_alerts(
     severity: Optional[str] = None,
