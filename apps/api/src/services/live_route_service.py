@@ -1,5 +1,5 @@
 """
-Live Route Service for NE-ROUTE Real-Time AI Intelligence.
+Live Route Service for SETU-ROUTE Real-Time AI Intelligence.
 Provides:
 - Layered deterministic fast risk re-scoring (<30ms)
 - Segment-by-segment corridor hazard evaluation (Rain, Wind, Flood, Landslide, Road Status)

@@ -1,4 +1,4 @@
-# NE-ROUTE Multi-Criteria Graph Routing & ETA Engine
+# SETU-ROUTE Multi-Criteria Graph Routing & ETA Engine
 
 The routing system optimizes freight corridors across difficult mountainous topography, taking into account road status, incident hazard zones, terrain gradient, and severe monsoon precipitation.
 

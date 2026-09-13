@@ -4,7 +4,7 @@ export async function GET() {
   return NextResponse.json(
     {
       status: "healthy",
-      service: "ne-route-web-api",
+      service: "setu-route-web-api",
       version: "1.0.0",
       timestamp: new Date().toISOString(),
     },

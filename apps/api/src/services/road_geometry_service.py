@@ -22,7 +22,7 @@ ROUTING_ENDPOINTS = [
 ]
 
 DEFAULT_HEADERS = {
-    "User-Agent": "NE-ROUTE-Geospatial-Routing/1.0 (MDoNER-SIH2026; contact@neroute.gov.in)",
+    "User-Agent": "SETU-ROUTE-Geospatial-Routing/1.0 (MDoNER-SIH2026; contact@seturoute.gov.in)",
     "Accept": "application/json",
 }
 

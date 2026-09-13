@@ -5,8 +5,8 @@ import { ToastProvider } from "@/components/ui/ToastProvider";
 import { RootLayoutClient } from "@/components/layout/RootLayoutClient";
 
 export const metadata: Metadata = {
-  title: "NE-ROUTE | MDoNER Logistics & Accessibility Intelligence",
-  description: "AI-Based Smart Logistics and Accessibility Intelligence Platform for North Eastern Region (MDoNER)",
+  title: "SETU-ROUTE | Smart Logistics & Accessibility Intelligence",
+  description: "SETU-ROUTE: AI-Based Smart Logistics and Accessibility Intelligence Platform for North Eastern Region (MDoNER)",
 };
 
 export default function RootLayout({

@@ -1,4 +1,4 @@
-# NE-ROUTE Architecture & Technical Design
+# SETU-ROUTE Architecture & Technical Design
 
 **Problem Statement ID:** 26002  
 **Title:** AI-Based Smart Logistics and Accessibility Intelligence Platform for North Eastern Region (NER)  
@@ -9,11 +9,11 @@
 
 ## 1. System Overview & Mission
 
-NE-ROUTE is an operational logistics command platform and accessibility intelligence system engineered specifically for the terrain and climate challenges of India's 8 North Eastern states (Assam, Meghalaya, Manipur, Mizoram, Nagaland, Tripura, Arunachal Pradesh, and Sikkim).
+SETU-ROUTE is an operational logistics command platform and accessibility intelligence system engineered specifically for the terrain and climate challenges of India's 8 North Eastern states (Assam, Meghalaya, Manipur, Mizoram, Nagaland, Tripura, Arunachal Pradesh, and Sikkim).
 
 ```
 +-----------------------------------------------------------------------+
-|                       THE NE-ROUTE INTELLIGENCE LOOP                  |
+|                      THE SETU-ROUTE INTELLIGENCE LOOP                 |
 |                                                                       |
 |  [1. SENSE]                                                           |
 |  GPS Telemetry + IMD Weather + Field Reports + Road Sensors           |

@@ -1,5 +1,5 @@
 /**
- * Multilingual Localization Engine for NE-ROUTE.
+ * Multilingual Localization Engine for SETU-ROUTE.
  * Supported Official Languages: English (en), Hindi (hi), Assamese (as), Bengali (bn).
  */
 

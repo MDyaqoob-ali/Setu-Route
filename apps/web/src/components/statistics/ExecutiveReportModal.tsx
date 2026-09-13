@@ -36,7 +36,7 @@ export const ExecutiveReportModal: React.FC<ExecutiveReportModalProps> = ({
     if (!reportData?.overview?.before_vs_after) return;
     
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Metric,Before NE-ROUTE,With NE-ROUTE,Improvement,Explanation\n";
+    csvContent += "Metric,Before SETU-ROUTE,With SETU-ROUTE,Improvement,Explanation\n";
     
     reportData.overview.before_vs_after.forEach((row: any) => {
       csvContent += `"${row.metric}","${row.before}","${row.after}","${row.delta}","${row.explanation}"\n`;
@@ -45,7 +45,7 @@ export const ExecutiveReportModal: React.FC<ExecutiveReportModalProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `NE_ROUTE_Impact_Report_${new Date().toISOString().split("T")[0]}.csv`);
+    link.setAttribute("download", `SETU_ROUTE_Impact_Report_${new Date().toISOString().split("T")[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -101,7 +101,7 @@ export const ExecutiveReportModal: React.FC<ExecutiveReportModalProps> = ({
             MINISTRY OF DEVELOPMENT OF NORTH EASTERN REGION (MDoNER)
           </h2>
           <h3 className="text-sm font-semibold text-brand-700">
-            NE-ROUTE: AI-Based Logistics Intelligence & Operational Impact Report
+            SETU-ROUTE: AI-Based Logistics Intelligence & Operational Impact Report
           </h3>
           <div className="flex items-center justify-center gap-4 text-xs text-slate-500 pt-1">
             <span>Period: <strong>{overview.period_label || "Last 30 Days"}</strong></span>
@@ -119,7 +119,7 @@ export const ExecutiveReportModal: React.FC<ExecutiveReportModalProps> = ({
             <span>1. Executive Summary</span>
           </h4>
           <p className="text-xs leading-relaxed text-slate-700 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80 italic">
-            &quot;{insights.ai_executive_summary || "NE-ROUTE continuously optimizes lifeline transit across the 8 North Eastern States through dynamic risk forecasting, physics-aware ETA recalibration, and human-in-the-loop autonomous detour recommendations."}&quot;
+            &quot;{insights.ai_executive_summary || "SETU-ROUTE continuously optimizes lifeline transit across the 8 North Eastern States through dynamic risk forecasting, physics-aware ETA recalibration, and human-in-the-loop autonomous detour recommendations."}&quot;
           </p>
         </div>
 
@@ -167,7 +167,7 @@ export const ExecutiveReportModal: React.FC<ExecutiveReportModalProps> = ({
         <div className="space-y-2">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <Activity className="w-3.5 h-3.5 text-brand-600" />
-            <span>3. Conventional Logistics vs NE-ROUTE Performance</span>
+            <span>3. Conventional Logistics vs SETU-ROUTE Performance</span>
           </h4>
           <div className="overflow-x-auto border border-slate-200 rounded-xl">
             <table className="w-full text-left text-xs">
@@ -175,7 +175,7 @@ export const ExecutiveReportModal: React.FC<ExecutiveReportModalProps> = ({
                 <tr>
                   <th className="py-2 px-3">Metric Dimension</th>
                   <th className="py-2 px-3 text-slate-400">Conventional Logistics</th>
-                  <th className="py-2 px-3 text-brand-700">With NE-ROUTE</th>
+                  <th className="py-2 px-3 text-brand-700">With SETU-ROUTE</th>
                   <th className="py-2 px-3 text-emerald-700 font-bold">Delta Improvement</th>
                 </tr>
               </thead>
@@ -249,7 +249,7 @@ export const ExecutiveReportModal: React.FC<ExecutiveReportModalProps> = ({
         {/* Report Footer */}
         <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] text-slate-400">
           <span>Official Evaluation Document • Antigravity AI Engine</span>
-          <span>NE-ROUTE Platform Version 1.0.0 • Verified PostGIS / SQLite Data</span>
+          <span>SETU-ROUTE Platform Version 1.0.0 • Verified PostGIS / SQLite Data</span>
         </div>
       </div>
     </Modal>

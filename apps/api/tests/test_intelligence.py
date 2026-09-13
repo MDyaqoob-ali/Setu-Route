@@ -1,5 +1,5 @@
 """
-Automated Test Suite for NE-ROUTE Intelligence Loop:
+Automated Test Suite for SETU-ROUTE Intelligence Loop:
 SENSE -> UNDERSTAND -> PREDICT -> DECIDE -> ACT -> VERIFY
 Tests ML risk prediction, accessibility engine, road graph routing,
 calibrated ETA prediction, delivery SLA monitoring, 4-part alerts,

@@ -24,7 +24,7 @@ export class GlobalErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught NE-ROUTE Runtime UI Error:", error, errorInfo);
+    console.error("Uncaught SETU-ROUTE Runtime UI Error:", error, errorInfo);
   }
 
   private handleReset = () => {

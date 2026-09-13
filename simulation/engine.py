@@ -12,7 +12,7 @@ API_BASE_URL = "http://127.0.0.1:8008/api/v1"
 
 async def run_simulation_loop(interval_seconds: float = 3.0):
     logger.info("==================================================")
-    logger.info("  NE-ROUTE REAL-TIME TELEMETRY SIMULATOR")
+    logger.info("  SETU-ROUTE REAL-TIME TELEMETRY SIMULATOR")
     logger.info("  Simulating fleet movements, incidents & weather")
     logger.info("==================================================")
 

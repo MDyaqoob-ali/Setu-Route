@@ -1,5 +1,5 @@
 """
-Dashboard, Operational Timeline & Real Analytics Router for NE-ROUTE.
+Dashboard, Operational Timeline & Real Analytics Router for SETU-ROUTE.
 Provides real query-backed intelligence metrics, auditable operational event timelines,
 and regional logistics analytics.
 """

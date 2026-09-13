@@ -1,5 +1,5 @@
 """
-Road Accessibility Scoring Engine for NE-ROUTE.
+Road Accessibility Scoring Engine for SETU-ROUTE.
 Computes fine-grained corridor accessibility (0-100), operational status,
 and reason codes based on active hazards, meteorological saturation, and road condition.
 """

@@ -1,5 +1,5 @@
 """
-End-to-End Operational Scenario Test Suite for NE-ROUTE.
+End-to-End Operational Scenario Test Suite for SETU-ROUTE.
 Validates the complete closed-loop logistics intelligence pipeline:
 - Scenario 1: Command Center Dispatch & Road Blockage Mitigation Workflow
 - Scenario 2: Field Officer Offline Reporting & Edge-to-Cloud Sync with Idempotency

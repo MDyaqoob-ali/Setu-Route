@@ -1,4 +1,4 @@
-# NE-ROUTE REST & WebSocket API Specification
+# SETU-ROUTE REST & WebSocket API Specification
 
 Base URL: `http://localhost:8008/api/v1` (Production: `https://api.neroute.gov.in/api/v1`)  
 WebSocket Gateway: `ws://localhost:8008/ws/{channel}`

@@ -1,5 +1,5 @@
 """
-External Intelligence Aggregation Layer for NE-ROUTE.
+External Intelligence Aggregation Layer for SETU-ROUTE.
 """
 
 from src.services.external_intelligence.source_registry import (

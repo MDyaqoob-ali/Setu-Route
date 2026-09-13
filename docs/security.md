@@ -1,6 +1,6 @@
-# NE-ROUTE Security Architecture & Vulnerability Review
+# SETU-ROUTE Security Architecture & Vulnerability Review
 
-Security and cryptographic safeguards implemented across NE-ROUTE to meet government compliance standards for critical logistics infrastructure.
+Security and cryptographic safeguards implemented across SETU-ROUTE to meet government compliance standards for critical logistics infrastructure.
 
 ---
 

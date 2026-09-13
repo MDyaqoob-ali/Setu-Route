@@ -1,5 +1,5 @@
 """
-Corridor Disruption Risk & Explainability Router for NE-ROUTE.
+Corridor Disruption Risk & Explainability Router for SETU-ROUTE.
 Serves statistical ML model inference, feature importance attributions,
 and 6-hour predictive horizons across North Eastern transportation corridors.
 """

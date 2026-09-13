@@ -1,4 +1,4 @@
-# NE-ROUTE Setup & Deployment Guide
+# SETU-ROUTE Setup & Deployment Guide
 
 ## Quick Start (Local Development)
 

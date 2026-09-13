@@ -1,5 +1,5 @@
 /**
- * Robust IndexedDB Offline Storage & Sync Queue for NE-ROUTE Field Officers.
+ * Robust IndexedDB Offline Storage & Sync Queue for SETU-ROUTE Field Officers.
  * Supports offline report creation, binary photo caching, idempotency keys,
  * retry backoff, and conflict resolution.
  */

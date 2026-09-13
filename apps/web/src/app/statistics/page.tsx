@@ -173,7 +173,7 @@ export default function StatisticsPage() {
             STATISTICS & OPERATIONAL IMPACT
           </h1>
           <p className="text-xs lg:text-sm text-slate-500 mt-1 max-w-3xl leading-relaxed">
-            Measure how NE-ROUTE improves route safety, logistics efficiency, decision speed, operational cost, and fleet resilience across the 8 North Eastern States.
+            Measure how SETU-ROUTE improves route safety, logistics efficiency, decision speed, operational cost, and fleet resilience across the 8 North Eastern States.
           </p>
         </div>
 
@@ -383,9 +383,9 @@ export default function StatisticsPage() {
         </div>
       </div>
 
-      {/* 3. NE-ROUTE Impact Score & Before vs After Matrix */}
+      {/* 3. SETU-ROUTE Impact Score & Before vs After Matrix */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* NE-ROUTE Impact Score (5 cols) */}
+        {/* SETU-ROUTE Impact Score (5 cols) */}
         <div className="lg:col-span-5 p-6 rounded-2xl border border-slate-200/80 bg-white shadow-card flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
@@ -394,7 +394,7 @@ export default function StatisticsPage() {
                 OPTIMAL
               </span>
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mt-1">NE-ROUTE IMPACT SCORE</h2>
+            <h2 className="text-lg font-bold text-slate-900 mt-1">SETU-ROUTE IMPACT SCORE</h2>
             <p className="text-xs text-slate-500 mt-0.5">Weighted composite calculated from 7 measurable operational dimensions.</p>
 
             {/* Circular Gauge Visualization */}
@@ -475,7 +475,7 @@ export default function StatisticsPage() {
                 <span>Impact Measured</span>
               </span>
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mt-1">WITHOUT NE-ROUTE vs WITH NE-ROUTE</h2>
+            <h2 className="text-lg font-bold text-slate-900 mt-1">WITHOUT SETU-ROUTE vs WITH SETU-ROUTE</h2>
             <p className="text-xs text-slate-500 mt-0.5">Quantifying operational transformation from manual logistics to autonomous AI command.</p>
 
             <div className="mt-4 overflow-x-auto">
@@ -483,8 +483,8 @@ export default function StatisticsPage() {
                 <thead>
                   <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400">
                     <th className="pb-2.5 font-bold">Operational Metric</th>
-                    <th className="pb-2.5 font-bold text-slate-500">Without NE-ROUTE</th>
-                    <th className="pb-2.5 font-bold text-brand-600">With NE-ROUTE</th>
+                    <th className="pb-2.5 font-bold text-slate-500">Without SETU-ROUTE</th>
+                    <th className="pb-2.5 font-bold text-brand-600">With SETU-ROUTE</th>
                     <th className="pb-2.5 font-bold text-right text-emerald-600">Improvement</th>
                   </tr>
                 </thead>
@@ -589,7 +589,7 @@ export default function StatisticsPage() {
                   <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
                     <span>Manual: <span className="line-through text-slate-400">{item.before}</span></span>
                     <ArrowRight className="w-3 h-3 text-slate-400" />
-                    <span className="font-bold text-brand-700">NE-ROUTE: {item.after}</span>
+                    <span className="font-bold text-brand-700">SETU-ROUTE: {item.after}</span>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -613,7 +613,7 @@ export default function StatisticsPage() {
             </div>
             <h3 className="text-lg font-bold text-slate-900">FOUR ROUTE STRATEGY COMPARISON</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              NE-ROUTE evaluates 4 distinct candidate trajectories simultaneously to provide explainable safety rationales.
+              SETU-ROUTE evaluates 4 distinct candidate trajectories simultaneously to provide explainable safety rationales.
             </p>
           </div>
 
@@ -1075,7 +1075,7 @@ export default function StatisticsPage() {
           <span>MDoNER Strategic Executive Narrative</span>
         </div>
         <p className="text-xs lg:text-sm text-slate-800 leading-relaxed italic">
-          &quot;{insights?.ai_executive_summary || "NE-ROUTE continuously senses the North Eastern arterial network, evaluates multi-criteria routes, recalibrates ETA with physical terrain friction, and dispatches 4-part actionable alerts to ensure resilient deliveries across all 8 states."}&quot;
+          &quot;{insights?.ai_executive_summary || "SETU-ROUTE continuously senses the North Eastern arterial network, evaluates multi-criteria routes, recalibrates ETA with physical terrain friction, and dispatches 4-part actionable alerts to ensure resilient deliveries across all 8 states."}&quot;
         </p>
       </div>
 

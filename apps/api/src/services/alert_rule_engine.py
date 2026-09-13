@@ -1,5 +1,5 @@
 """
-Extensible Alert Rule Engine for NE-ROUTE.
+Extensible Alert Rule Engine for SETU-ROUTE.
 Evaluates state transitions and generates structured 4-part actionable operational alerts.
 """
 

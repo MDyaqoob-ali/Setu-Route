@@ -21,7 +21,7 @@ from src.services.road_geometry_service import RoadGeometryService
 
 
 async def snap_corridors():
-    print("[*] Connecting to NE-ROUTE database...")
+    print("[*] Connecting to SETU-ROUTE database...")
     async with AsyncSessionLocal() as db:
         res = await db.execute(select(Road))
         roads = res.scalars().all()

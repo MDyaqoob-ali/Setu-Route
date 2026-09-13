@@ -274,7 +274,7 @@ export const GuidedDemoModal: React.FC<{ isOpen: boolean; onClose: () => void }>
         {/* Footer */}
         <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between">
           <span className="text-[11px] text-slate-500">
-            Powered by NE-ROUTE AI Intelligence Loop (MDoNER PS-26002)
+            Powered by SETU-ROUTE AI Intelligence Loop (MDoNER PS-26002)
           </span>
           <button
             onClick={onClose}

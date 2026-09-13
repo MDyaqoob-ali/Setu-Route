@@ -1,5 +1,5 @@
 """
-Comprehensive Automated Test Suite for NE-ROUTE External Intelligence & Real-World Blockage Detection.
+Comprehensive Automated Test Suite for SETU-ROUTE External Intelligence & Real-World Blockage Detection.
 Covers:
 1. Source Registry & Trust Model (Level 1 Official to Level 4 Unverified)
 2. Normalization & Spatial Bounding Box Validation

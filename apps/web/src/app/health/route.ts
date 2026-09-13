@@ -4,7 +4,7 @@ export async function GET() {
   return NextResponse.json(
     {
       status: "healthy",
-      service: "ne-route-web",
+      service: "setu-route-web",
       version: "1.0.0",
       region: "North Eastern Region (NER)",
       timestamp: new Date().toISOString(),

@@ -1,5 +1,5 @@
 """
-Admin & Security Audit Router for NE-ROUTE.
+Admin & Security Audit Router for SETU-ROUTE.
 Provides auditable action logging, user management, and system observability matrix.
 """
 

@@ -78,7 +78,7 @@ export const Header: React.FC = () => {
   }, []);
 
   const pageInfo = PAGE_TITLES[pathname] || {
-    title: "NE-ROUTE Intelligence",
+    title: "SETU-ROUTE Intelligence",
     subtitle: "MDoNER Logistics Command",
   };
 
@@ -102,7 +102,7 @@ export const Header: React.FC = () => {
 
           <div className="hidden sm:flex flex-col">
             <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-              <Link href="/" className="hover:text-slate-600 transition-colors">NE-ROUTE</Link>
+              <Link href="/" className="hover:text-slate-600 transition-colors">SETU-ROUTE</Link>
               <ChevronRight className="w-3 h-3 text-slate-300" />
               <span className="text-slate-700 font-semibold">{pageInfo.title}</span>
             </div>

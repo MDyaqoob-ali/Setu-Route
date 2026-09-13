@@ -14,10 +14,10 @@ def _get_default_db_url() -> str:
     return f"sqlite+aiosqlite:///{api_db.replace(os.sep, '/')}"
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "NE-ROUTE"
+    PROJECT_NAME: str = "SETU-ROUTE"
     ENVIRONMENT: str = "development"
     API_V1_STR: str = "/api/v1"
-    SECRET_KEY: str = "ne-route-super-secure-production-key-sih-2026-ner-logistics"
+    SECRET_KEY: str = "setu-route-super-secure-production-key-sih-2026-ner-logistics"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     ALGORITHM: str = "HS256"
     

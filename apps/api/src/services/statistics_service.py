@@ -168,7 +168,7 @@ class StatisticsService:
                     "trend": "down",
                     "badge": "AUTOMATION",
                     "badge_type": "live",
-                    "tooltip": "Proportion of routine risk evaluations, alert dispatches, and route recalculations handled autonomously by NE-ROUTE."
+                    "tooltip": "Proportion of routine risk evaluations, alert dispatches, and route recalculations handled autonomously by SETU-ROUTE."
                 },
                 "risk_exposure": {
                     "value": f"-{risk_reduction_pct}%",
@@ -345,7 +345,7 @@ class StatisticsService:
                 "automated_alerts_dispatched": total_alerts + (248 * range_mult // 12),
                 "automated_reroutes_executed": dynamic_reroutes,
                 "human_review_required_percent": 32.0,
-                "human_in_loop_philosophy": "NE-ROUTE automates heavy computational monitoring and route synthesis while keeping critical mission approvals firmly in the hands of regional command dispatchers.",
+                "human_in_loop_philosophy": "SETU-ROUTE automates heavy computational monitoring and route synthesis while keeping critical mission approvals firmly in the hands of regional command dispatchers.",
                 "workflow_steps": [
                     { "stage": "1. SENSE", "title": "Continuous Ingestion", "type": "AUTOMATED", "desc": "GPS telemetry, IMD sensors & offline field reports ingested every 3 seconds" },
                     { "stage": "2. PREDICT", "title": "ML Risk Scoring", "type": "AUTOMATED", "desc": "Gradient Boosting classifier calculates 0-100 hazard scores dynamically" },
@@ -628,7 +628,7 @@ class StatisticsService:
     @staticmethod
     async def get_insights_and_attention(db: AsyncSession) -> Dict[str, Any]:
         return {
-            "ai_executive_summary": "During the monitored period, NE-ROUTE evaluated 1,248 route options across the 8 primary North Eastern highway lifelines and successfully executed 186 dynamic reroutes avoiding severe disruptions. The platform decreased route risk exposure by 37.7%, achieved an average ETA savings of 42 minutes per affected delivery, and reduced manual dispatcher workload by 68% while maintaining a 94.7% on-time delivery SLA for essential regional consignments.",
+            "ai_executive_summary": "During the monitored period, SETU-ROUTE evaluated 1,248 route options across the 8 primary North Eastern highway lifelines and successfully executed 186 dynamic reroutes avoiding severe disruptions. The platform decreased route risk exposure by 37.7%, achieved an average ETA savings of 42 minutes per affected delivery, and reduced manual dispatcher workload by 68% while maintaining a 94.7% on-time delivery SLA for essential regional consignments.",
             "key_insights": [
                 {
                     "type": "positive",

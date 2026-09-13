@@ -1,5 +1,5 @@
 {
-  "model_name": "NE-ROUTE Gradient Boosted Disruption Classifier",
+  "model_name": "SETU-ROUTE Gradient Boosted Disruption Classifier",
   "model_version": "1.0.0-ner-monsoon",
   "algorithm": "GradientBoostingClassifier",
   "training_timestamp": "2026-09-08T13:46:59.767482+00:00",

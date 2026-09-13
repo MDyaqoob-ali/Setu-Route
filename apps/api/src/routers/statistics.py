@@ -16,7 +16,7 @@ async def get_overview(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Returns executive KPIs, NE-ROUTE Impact Score, Before vs After comparisons,
+    Returns executive KPIs, SETU-ROUTE Impact Score, Before vs After comparisons,
     cost savings breakdown, automation & decision speed metrics.
     """
     return await StatisticsService.get_overview(

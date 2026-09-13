@@ -1,5 +1,5 @@
 """
-Simulation Scenario Controller for NE-ROUTE.
+Simulation Scenario Controller for SETU-ROUTE.
 Provides real-time interactive triggers to exercise the end-to-end intelligence loop:
 Weather Spike -> Accessibility Degradation -> Disruption Risk Prediction ->
 Road Blockage -> Vehicle Detection -> Dynamic Rerouting -> ETA Calibration ->

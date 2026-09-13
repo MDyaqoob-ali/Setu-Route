@@ -1,5 +1,5 @@
 """
-Dynamic Rerouting Engine for NE-ROUTE.
+Dynamic Rerouting Engine for SETU-ROUTE.
 Executes the closed-loop reaction when a corridor is disrupted:
 1. Identify affected vehicles on the corridor
 2. Identify affected consignments/deliveries

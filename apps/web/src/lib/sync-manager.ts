@@ -1,5 +1,5 @@
 /**
- * Offline Sync Manager for NE-ROUTE Field Reports.
+ * Offline Sync Manager for SETU-ROUTE Field Reports.
  * Manages reliable batch uploading of IndexedDB queued reports
  * with exponential backoff, idempotency deduplication, and state updates.
  */

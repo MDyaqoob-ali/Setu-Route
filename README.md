@@ -1,4 +1,4 @@
-# NE-ROUTE: AI-Based Smart Logistics & Accessibility Intelligence Platform for North Eastern Region (NER)
+# SETU-ROUTE: AI-Based Smart Logistics & Accessibility Intelligence Platform for North Eastern Region (NER)
 
 **Smart India Hackathon 2026**  
 **Problem Statement ID:** 26002  
@@ -11,7 +11,7 @@
 
 The North Eastern Region (NER) of India comprises critical yet geographically vulnerable supply chain lifelines across 8 states: **Assam, Meghalaya, Manipur, Mizoram, Nagaland, Tripura, Arunachal Pradesh, and Sikkim**. Mountainous arteries routinely suffer from severe landslides, cloudburst flooding, and subgrade collapses during monsoon periods, threatening deliveries of life-saving medical consignments, FCI food grains, and petroleum convoys.
 
-**NE-ROUTE** is a production-grade logistics intelligence command platform that connects field telemetry, meteorological risk prediction, and multi-criteria routing into a closed-loop operational workflow:
+**SETU-ROUTE** is a production-grade logistics intelligence command platform that connects field telemetry, meteorological risk prediction, and multi-criteria routing into a closed-loop operational workflow:
 
 ```
 FIELD TELEMETRY / GPS / WEATHER

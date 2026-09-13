@@ -59,7 +59,7 @@ export default function LoginPage() {
             <Radio className="w-6 h-6 text-white animate-pulse" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            NE-ROUTE Portal
+            SETU-ROUTE Portal
           </h1>
           <p className="text-xs text-slate-500">
             Ministry of Development of North Eastern Region (MDoNER)

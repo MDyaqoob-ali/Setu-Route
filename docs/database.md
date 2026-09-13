@@ -1,6 +1,6 @@
-# NE-ROUTE Database Architecture & Data Models
+# SETU-ROUTE Database Architecture & Data Models
 
-NE-ROUTE utilizes an asynchronous relational database schema powered by SQLAlchemy 2.0 and supports both **SQLite with aiosqlite** (for rapid local deployment) and **PostgreSQL 16 + PostGIS** (for high-scale production spatial operations).
+SETU-ROUTE utilizes an asynchronous relational database schema powered by SQLAlchemy 2.0 and supports both **SQLite with aiosqlite** (for rapid local deployment) and **PostgreSQL 16 + PostGIS** (for high-scale production spatial operations).
 
 ---
 

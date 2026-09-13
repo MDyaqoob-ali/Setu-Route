@@ -1,5 +1,5 @@
 """
-Offline Field Sync & Idempotency Router for NE-ROUTE.
+Offline Field Sync & Idempotency Router for SETU-ROUTE.
 Processes batched and individual field reports with idempotency keys,
 photo binary saving, and conflict resolution.
 """

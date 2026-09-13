@@ -27,9 +27,9 @@ logger = logging.getLogger("neroute.api")
 async def lifespan(app: FastAPI):
     # Startup: Ensure upload dir and database tables exist
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    logger.info("Initializing NE-ROUTE database...")
+    logger.info("Initializing SETU-ROUTE database...")
     await init_db()
-    logger.info("NE-ROUTE Database initialized successfully.")
+    logger.info("SETU-ROUTE Database initialized successfully.")
 
     # Trigger background tasks for alerts and external real-time intelligence
     logger.info("Initializing operational alerts and triggering external intelligence...")
@@ -47,10 +47,10 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(startup_tasks())
 
     yield
-    logger.info("Shutting down NE-ROUTE API...")
+    logger.info("Shutting down SETU-ROUTE API...")
 
 app = FastAPI(
-    title="NE-ROUTE API",
+    title="SETU-ROUTE API",
     description="AI-Based Smart Logistics and Accessibility Intelligence Platform for North Eastern Region (MDoNER - SIH 2026)",
     version="1.0.0",
     lifespan=lifespan
@@ -97,7 +97,7 @@ app.include_router(intelligence.router)  # Also mount at root for direct /intell
 async def health_check():
     return {
         "status": "healthy",
-        "service": "NE-ROUTE API",
+        "service": "SETU-ROUTE API",
         "version": "1.0.0",
         "region": "North Eastern Region (NER)",
         "agency": "Ministry of Development of North Eastern Region (MDoNER)"

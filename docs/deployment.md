@@ -1,6 +1,6 @@
-# NE-ROUTE Deployment & Operations Guide
+# SETU-ROUTE Deployment & Operations Guide
 
-This guide covers local developer setup, Docker containerization, and production cloud deployment for the NE-ROUTE platform.
+This guide covers local developer setup, Docker containerization, and production cloud deployment for the SETU-ROUTE platform.
 
 ---
 
@@ -17,8 +17,8 @@ This guide covers local developer setup, Docker containerization, and production
 
 ### Step 1: Clone & Configure Environment
 ```bash
-git clone https://github.com/mdoner-india/ne-route.git
-cd ne-route
+git clone https://github.com/MDyaqoob-ali/Setu-Route.git
+cd Setu-Route
 cp .env.example .env
 ```
 

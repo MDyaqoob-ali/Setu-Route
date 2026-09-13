@@ -1,4 +1,4 @@
-# NE-ROUTE Machine Learning Risk Prediction Pipeline
+# SETU-ROUTE Machine Learning Risk Prediction Pipeline
 
 **Model Name:** Gradient Boosted Transportation Disruption Classifier  
 **Model Version:** `1.0.0-ner-monsoon`  

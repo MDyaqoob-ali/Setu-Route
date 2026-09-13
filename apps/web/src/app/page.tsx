@@ -138,7 +138,7 @@ export default function CommandCenterPage() {
       <div className="p-6">
         <ErrorState
           title="Command Center Telemetry Disconnected"
-          message="Unable to connect to NE-ROUTE operations server. Operating in offline/degraded mode."
+          message="Unable to connect to SETU-ROUTE operations server. Operating in offline/degraded mode."
           onRetry={() => refetch()}
           errorDetails={error}
         />

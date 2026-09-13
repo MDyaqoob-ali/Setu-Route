@@ -1,4 +1,4 @@
-# NE-ROUTE Machine Learning Disruption Predictor
+# SETU-ROUTE Machine Learning Disruption Predictor
 
 The ML subsystem predicts the probability of roadway disruptions (landslides, flash flooding, slope collapse) across North Eastern corridors using environmental, meteorological, and topographical indicators.
 
@@ -21,7 +21,7 @@ The ML subsystem predicts the probability of roadway disruptions (landslides, fl
 | `rainfall_6h_mm` | mm | IMD Weather Station | Cumulative 6-hour monsoon saturation |
 | `slope_deg` | degrees | SRTM Digital Elevation Model | Mountain hillside inclination angle |
 | `elevation_m` | meters | Topographic Survey | Altitude above sea level |
-| `active_incidents_count` | count | NE-ROUTE Incident Stream | Active minor slides within 20km |
+| `active_incidents_count` | count | SETU-ROUTE Incident Stream | Active minor slides within 20km |
 | `accessibility_score` | 0-100 | Accessibility Engine | Current corridor health score |
 
 ---

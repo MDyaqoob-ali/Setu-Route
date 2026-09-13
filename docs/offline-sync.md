@@ -1,4 +1,4 @@
-# NE-ROUTE Offline Field PWA & Edge-to-Cloud Synchronization
+# SETU-ROUTE Offline Field PWA & Edge-to-Cloud Synchronization
 
 The Field Reporting Progressive Web Application (PWA) operates seamlessly in deep mountain valleys with zero cellular reception, guaranteeing zero data loss for on-ground officers.
 

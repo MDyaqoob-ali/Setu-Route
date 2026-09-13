@@ -1,4 +1,4 @@
-# NE-ROUTE: Complete Project Summary & Feature Catalog
+# SETU-ROUTE: Complete Project Summary & Feature Catalog
 
 **Smart India Hackathon 2026** | **Problem Statement ID:** 26002  
 **Ministry / Organization:** Ministry of Development of North Eastern Region (MDoNER), Government of India  
@@ -15,7 +15,7 @@ During monsoons and seismic events, these lifeline corridors routinely suffer fr
 * **Flash Floods & Cloudbursts:** Waterlogging critical low-lying bridges and highways across the Brahmaputra and Barak basins.
 * **Total Connectivity Blackouts:** Stranded supply convoys carrying emergency medicines, FCI grain supplies, and fuel with zero connectivity for real-time reporting.
 
-**NE-ROUTE** is a production-grade AI-powered logistics intelligence and road accessibility command platform built to solve these critical bottlenecks through a closed-loop automated pipeline.
+**SETU-ROUTE** is a production-grade AI-powered logistics intelligence and road accessibility command platform built to solve these critical bottlenecks through a closed-loop automated pipeline.
 
 ---
 
@@ -23,7 +23,7 @@ During monsoons and seismic events, these lifeline corridors routinely suffer fr
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       THE NE-ROUTE INTELLIGENCE LOOP                        │
+│                      THE SETU-ROUTE INTELLIGENCE LOOP                       │
 │                                                                             │
 │  [1. SENSE]                                                                 │
 │  GPS Fleet Telemetry + IMD Cloudburst Sensors + Offline Field PWA Reports   │

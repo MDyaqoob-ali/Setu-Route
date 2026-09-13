@@ -1,5 +1,5 @@
 """
-Performance & Load Testing Benchmark Suite for NE-ROUTE.
+Performance & Load Testing Benchmark Suite for SETU-ROUTE.
 Measures latency, throughput, and error rates across:
 1. 100 Concurrent Dashboard Requests
 2. 500 Simulated Vehicle GPS Telemetry Queries
@@ -101,7 +101,7 @@ async def benchmark_endpoint(
 
 async def run_load_test():
     print("=" * 75)
-    print("NE-ROUTE PRODUCTION PERFORMANCE & HIGH-CONCURRENCY LOAD BENCHMARK")
+    print("SETU-ROUTE PRODUCTION PERFORMANCE & HIGH-CONCURRENCY LOAD BENCHMARK")
     print(f"Target Gateway: {BASE_URL}")
     print("=" * 75)
 

@@ -1,5 +1,5 @@
 """
-Training Pipeline for NE-ROUTE Transportation Disruption Risk Model.
+Training Pipeline for SETU-ROUTE Transportation Disruption Risk Model.
 Trains a Gradient Boosted Decision Tree classifier with feature importance attribution.
 """
 
@@ -25,7 +25,7 @@ ARTIFACTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "artifac
 def train_and_evaluate_model():
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     print("==================================================")
-    print("  NE-ROUTE ML TRAINING PIPELINE (SIH 2026)")
+    print("  SETU-ROUTE ML TRAINING PIPELINE (SIH 2026)")
     print("  Training Disruption Risk Model on NER Corridors")
     print("==================================================")
 
@@ -77,7 +77,7 @@ def train_and_evaluate_model():
     print(f"\n[+] Serialized model artifact saved to: {model_path}")
 
     metadata = {
-        "model_name": "NE-ROUTE Gradient Boosted Disruption Classifier",
+        "model_name": "SETU-ROUTE Gradient Boosted Disruption Classifier",
         "model_version": "1.0.0-ner-monsoon",
         "algorithm": "GradientBoostingClassifier",
         "training_timestamp": datetime.now(timezone.utc).isoformat(),

@@ -1,5 +1,5 @@
 """
-Source Registry and Trust Hierarchy for NE-ROUTE Real-Time Intelligence.
+Source Registry and Trust Hierarchy for SETU-ROUTE Real-Time Intelligence.
 Defines verified online sources, rate limits, update intervals, and reliability levels.
 """
 
@@ -42,7 +42,7 @@ class SourceConfig:
         self.endpoint_url = endpoint_url
         self.timeout_sec = timeout_sec
         self.refresh_interval_sec = refresh_interval_sec
-        self.headers = headers or {"User-Agent": "NE-Route-Intelligence/2.0 (+https://github.com/MDyaqoob-ali/Setu-Route)"}
+        self.headers = headers or {"User-Agent": "SETU-Route-Intelligence/2.0 (+https://github.com/MDyaqoob-ali/Setu-Route)"}
         self.is_enabled = is_enabled
         self.source_id = source_id or name.lower().replace(" ", "_")
 

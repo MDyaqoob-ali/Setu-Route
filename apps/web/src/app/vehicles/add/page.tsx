@@ -405,7 +405,7 @@ export default function AddVehiclePage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 pb-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 mb-1">
-            <Link href="/" className="hover:text-slate-600 transition-colors">NE-ROUTE</Link>
+            <Link href="/" className="hover:text-slate-600 transition-colors">SETU-ROUTE</Link>
             <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
             <Link href="/vehicles" className="hover:text-slate-600 transition-colors">Vehicles</Link>
             <ChevronRight className="w-3.5 h-3.5 text-slate-300" />

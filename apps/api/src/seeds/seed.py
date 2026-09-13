@@ -348,7 +348,7 @@ async def run_seed():
 
         await db.commit()
         print("\n=======================================================")
-        print("  [SUCCESS] NE-ROUTE SEED COMPLETE!")
+        print("  [SUCCESS] SETU-ROUTE SEED COMPLETE!")
         print("  7 Users, 20 NER Districts, 8 Major Highway Corridors,")
         print("  6 Active Incidents, 10 Fleet Vehicles, 6 Consignments,")
         print("  6 Weather Stations, and Real-time GeoJSON layers created.")

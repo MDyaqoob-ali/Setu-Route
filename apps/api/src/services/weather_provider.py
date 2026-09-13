@@ -1,5 +1,5 @@
 """
-Weather Provider Abstraction for NE-ROUTE.
+Weather Provider Abstraction for SETU-ROUTE.
 Provides normalized meteorological telemetry for North Eastern Region stations.
 """
 

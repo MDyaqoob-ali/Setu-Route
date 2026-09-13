@@ -103,7 +103,7 @@ const BASEMAP_STYLES = {
         type: "raster" as const,
         tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
         tileSize: 256,
-        attribution: "&copy; OpenStreetMap contributors | MDoNER NE-ROUTE",
+        attribution: "&copy; OpenStreetMap contributors | MDoNER SETU-ROUTE",
       },
     },
     layers: [

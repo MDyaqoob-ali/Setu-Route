@@ -95,10 +95,10 @@ export const Sidebar: React.FC = () => {
             {sidebarOpen && (
               <div className="flex flex-col min-w-0">
                 <span className="text-sm font-bold tracking-tight text-slate-900 leading-none">
-                  NE-ROUTE
+                  SETU-ROUTE
                 </span>
                 <span className="text-[11px] text-slate-400 font-medium tracking-normal mt-1 leading-none">
-                  MDoNER Intelligence
+                  Smart Logistics Intelligence
                 </span>
               </div>
             )}
